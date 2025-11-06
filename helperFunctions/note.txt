@@ -1,0 +1,29 @@
+if get_grn:
+                
+                
+                if approve_img:
+                    approve_file_name = str(uuid.uuid4())
+                    approve_file_path = os.path.join(settings.MEDIA_ROOT, "approve-img", approve_file_name + "." + approve_img.name.split(".")[-1])
+                    os.makedirs(os.path.dirname(approve_file_path), exist_ok=True)
+                    with open(approve_file_path, 'wb+') as destination:
+                        for chunk in approve_img.chunks():
+                            destination.write(chunk)
+                    get_grn.approve_img = approve_file_name + "." + approve_img.name.split(".")[-1]
+
+                
+                # Save the GRN No
+                get_grn.grn_no = grn_no
+                # Here this end point only serves the supervisor ===> Check role, then change to respective status
+                role = get_user_role(request.user)
+                allowed_status = Status.get_status_by_role(role)
+                #if allowed_status not in ["prepared", "inspected", "paid"]:
+                    #get_grn.status = Status.APPROVED.status_value
+                    #get_grn.updated_by = request.user.username
+                    #get_grn.updated_at = today
+                    #get_grn.save()
+                if allowed_status not in ["prepared","approved","paid"]: #"inspected"
+                    get_grn.status = Status.VERIFIED.status_value
+                    get_grn.updated_by = request.user.username
+                    get_grn.updated_at = today
+                    get_grn.save()
+                return JsonResponse({"result": "success", "message": f"Record {record_no} status is approved successfully"}, status=status.HTTP_200_OK)

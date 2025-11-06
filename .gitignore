@@ -1,0 +1,41 @@
+# Python
+*.py[cod]
+__pycache__/
+*.pyo
+*.pyd
+
+# Virtual environment
+env/
+*.env
+
+# Database
+db.sqlite3
+
+# Django
+*.log
+*.pot
+*.pyc
+
+media/
+*.egg-info/
+dist/
+build/
+*.cover
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+
+# Cache files
+*.pyc
+__pycache__/
+*.db
+# Ignore specific migration files
+*/migrations/000*.py
+
+*/migrations
+
+./migrations/000*.py

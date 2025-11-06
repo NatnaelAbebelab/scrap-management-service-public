@@ -1,0 +1,114 @@
+from dateutil.relativedelta import relativedelta
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
+from rest_framework.parsers import FormParser, MultiPartParser
+
+@swagger_auto_schema(
+    method='post',
+    operation_description="Generate an aggregate report based on TIN, date range, and status.",
+    manual_parameters=[
+        openapi.Parameter("TIN", openapi.IN_FORM, description="Taxpayer Identification Number", type=openapi.TYPE_STRING, required=True),
+        openapi.Parameter("start_date", openapi.IN_FORM, description="Start date (YYYY-MM-DD)", type=openapi.TYPE_STRING, required=False),
+        openapi.Parameter("end_date", openapi.IN_FORM, description="End date (YYYY-MM-DD)", type=openapi.TYPE_STRING, required=False),
+        openapi.Parameter("status", openapi.IN_FORM, description="Status of the report (e.g., 'new')", type=openapi.TYPE_STRING, required=False),
+        openapi.Parameter("period", openapi.IN_FORM, description="Report period ('daily' or 'yearly')", type=openapi.TYPE_STRING, required=False),
+    ],
+    responses={200: "Aggregated report generated", 400: "Error generating report"},
+)
+
+
+
+def generate_report(period, grn) :
+    match period :
+        case 'daily':
+            grn = grn.annotate(period=TruncDay('first_date_dt'))
+            report_data = grn.values('period').annotate(total_quantity=Count('_id'), total_net_weight=Round(Sum(Cast('net_weight', FloatField())), 2), total_net_price=Round(Sum(Cast('net_price', FloatField())), 2)).order_by('period')
+            return JsonResponse({'result' : 'success', 'message' : period + ' report generated successfully', 'report' : list(report_data)}, status=200)
+        case 'weekly':
+            grn = grn.annotate(period=TruncWeek('first_date_dt'))
+            report_data = grn.values('period').annotate(total_quantity=Count('_id'), total_net_weight=Round(Sum(Cast('net_weight', FloatField())), 2), total_net_price=Round(Sum(Cast('net_price', FloatField())), 2)).order_by('period')
+            return JsonResponse({'result' : 'success', 'message' : period + ' report generated successfully', 'report' : list(report_data)}, status=200)
+        case 'monthly':
+            grn = grn.annotate(period=TruncMonth('first_date_dt'))
+            report_data = grn.values('period').annotate(total_quantity=Count('_id'), total_net_weight=Round(Sum(Cast('net_weight', FloatField())), 2), total_net_price=Round(Sum(Cast('net_price', FloatField())), 2)).order_by('period')
+            return JsonResponse({'result' : 'success', 'message' : period + ' report generated successfully', 'report' : list(report_data)}, status=200)
+        case 'yearly':
+            grn = grn.annotate(period=TruncYear('first_date_dt'))
+            report_data = grn.values('period').annotate(total_quantity=Count('_id'), total_net_weight=Round(Sum(Cast('net_weight', FloatField())), 2), total_net_price=Round(Sum(Cast('net_price', FloatField())), 2)).order_by('period')
+            return JsonResponse({'result' : 'success', 'message' : period + ' report generated successfully', 'report' : list(report_data)}, status=200)
+    grn = grn.annotate(period=TruncDay('first_date_dt'))
+    report_data = grn.values('period').annotate(total_quantity=Count('_id'), total_net_weight=Round(Sum(Cast('net_weight', FloatField())), 2), total_net_price=Round(Sum(Cast('net_price', FloatField())), 2)).order_by('period')
+    return JsonResponse({'result' : 'success', 'message' : 'daily report generated successfully', 'report' : list(report_data)}, status=200)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "finance"])])
+def aggregate_report_finance(request) :
+    if request.method == 'POST' :
+        tin = request.POST.get("tin", "").strip().lower().lstrip("0")
+        material_type = request.POST.get("material_type", "").strip().lower()
+        start_date = request.POST.get("start_date", "").strip().lower()
+        end_date = request.POST.get("end_date", "").strip().lower()
+        status = request.POST.get("status", "").strip().lower()
+        period = request.POST.get("period", "daily").strip().lower()
+        
+        role = get_user_role(request.user)
+
+        allowed_status = Status.get_status_by_role(role)
+        if status and status not in allowed_status:
+            return JsonResponse({"result": "error", "message": "Status is not finance scope"}, status=400)
+        try:
+            # Base QuerySet
+            grn_records = GRN.objects.annotate(
+                updated_at_datetime=Case(
+                    When(updated_at__exact="", then=Value(None)),
+                    When(updated_at__isnull=True, then=Value(None)),
+                    default=Cast("updated_at", DateTimeField()),
+                    output_field=DateTimeField()
+                )
+            ).order_by("updated_at_datetime")
+            
+            # Filter by TIN (Check if tin exists in Customer model)
+            if tin and clean_tin(tin):
+                customer = Customer.objects.filter(TIN=tin).first()
+                if customer:
+                    grn_records = grn_records.filter(customer=tin)
+            
+            # Filter by material type
+            if material_type and is_valid_material(material_type):
+                grn_records = grn_records.filter(material_type=material_type.upper())
+            
+            grn_records = grn_records.annotate(
+                casted_first_date=ToDate("first_date")
+            )
+            if start_date:
+                start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
+                grn_records = grn_records.filter(casted_first_date__gte=start_date)
+            if end_date:
+                end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
+                grn_records = grn_records.filter(casted_first_date__lte=end_date)
+            
+            # Filter by status
+            if status:
+                grn_records = grn_records.filter(status=status)
+            else:
+                grn_records = grn_records.filter(status__in=allowed_status)
+
+            # aggregate periodically
+            if period == 'daily':
+                daily_report = daily_aggregate_report(request, grn_records)
+                return JsonResponse({"result": "success", "message": "GRNs are filtered daily successfully", "data": daily_report}, status=200)
+            if period == 'weekly':
+                weekly_report = weekly_aggregate_report(request, grn_records)
+                return JsonResponse({"result": "success", "message": "GRNs are filtered weekly successfully", "data": weekly_report}, status=200)
+            if period == 'monthly':
+                monthly_report = monthly_aggregate_report(request, grn_records)
+                return JsonResponse({"result": "success", "message": "GRNs are filtered monthly successfully", "data": monthly_report}, status=200)
+            if period == 'yearly':
+                yearly_report = yearly_aggregate_report(request, grn_records)
+                return JsonResponse({"result": "success", "message": "GRNs are filtered yearly successfully", "data": yearly_report}, status=200)
+            daily_report = daily_aggregate_report(request, grn_records)
+            return JsonResponse({"result": "success", "message": "GRNs are filtered successfully", "data": daily_report}, status=200)
+        except Exception as e:
+            logger.error("Error occurred while aggregating grn: %s", e)
+            return JsonResponse({"result": "error", "message": "Error occurred while aggregating records"}, status=400)
