@@ -1,5 +1,7 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import List, Dict
+
 from django.db.models import Sum, DateField, Value
 from django.db.models.functions import Cast, Concat, Substr
 from django.http import JsonResponse
@@ -7,7 +9,9 @@ from rest_framework import status
 from rest_framework.decorators import permission_classes, api_view
 from rest_framework.permissions import IsAuthenticated
 
+from grn.models import GRN
 from helperFunctions.pagination import stock_balance_pagination
+from internal.models import DailyScrapMoveAggregate
 from stock.models import StockBalance, CumulativeBalance
 from stock.utils.date_format import _default_date_range, parse_date
 from utils.permissions import role_required
@@ -328,4 +332,107 @@ def get_stock_report(request):
         logger.error("Error occurred while generating stock report: %s", e)
         return JsonResponse({"result": "error", 'message': "Error occurred while generating report."}, status=400)
 
+def generate_stock_card(start_date: str, end_date: str) -> dict:
+    _today = datetime.now().date()
+    if not start_date:
+        start = _today - timedelta(days=30)
+    else:
+        try:
+            start = datetime.strptime(start_date, '%Y-%m-%d').date()
+        except ValueError:
+            raise ValueError("Invalid start_date format. Use YYYY-MM-DD")
+
+    if not end_date:
+        end = _today
+    else:
+        try:
+            end = datetime.strptime(end_date, '%Y-%m-%d').date()
+        except ValueError:
+            raise ValueError("Invalid end_date format. Use YYYY-MM-DD")
+
+    if start > end:
+        raise ValueError("Start date cannot be after end date")
+
+    stock_card: List[Dict] = []
+    total_purchase_weight = 0.0
+    total_transport_weight = 0.0
+    running_balance = 0.0
+
+    current = start
+    delta = timedelta(days=1)
+
+    while current <= end:
+        weight_date_str = current.strftime('%d.%m.%Y')  # e.g., 10.11.2025
+
+        # === GRN: Purchase ===
+        grn_records = GRN.objects.filter(
+            first_date=weight_date_str,
+            is_deleted=False
+        ).exclude(net_weight__in=['', '0', '0.0', None])
+
+        grn_nos = [r.grn_no for r in grn_records if r.grn_no and r.grn_no != '-']
+        grn_no_display = ', '.join(grn_nos) if grn_nos else '-'
+
+        purchase_weight = sum(
+            float(r.net_weight or 0) for r in grn_records
+        )
+
+        # === DailyScrapMoveAggregate: Transport ===
+        agg_records = DailyScrapMoveAggregate.objects.filter(
+            weight_date=weight_date_str,
+            is_deleted=False
+        ).exclude(daily_net_weight__in=['', '0', '0.0', None])
+
+        transport_weight = sum(
+            float(r.daily_net_weight or 0) for r in agg_records
+        )
+
+        if purchase_weight == 0 and transport_weight == 0:
+            current += delta
+            continue
+
+        # === Daily Balance ===
+        daily_balance = purchase_weight - transport_weight
+        running_balance += daily_balance
+
+        # === Totals ===
+        total_purchase_weight += purchase_weight
+        total_transport_weight += transport_weight
+
+        # === Append Row ===
+        stock_card.append({
+            "weight_date": weight_date_str,
+            "GRN No": grn_no_display,
+            "Issue Voucher NO": "-",
+            "purchase_weight": round(purchase_weight, 2),
+            "transport_weight": round(transport_weight, 2),
+            "balance": round(daily_balance, 2)
+        })
+
+        current += delta
+
+    # === Summary ===
+    summary = {
+        "total_purchase_weight": round(total_purchase_weight, 2),
+        "total_transport_weight": round(total_transport_weight, 2),
+        "Balance": round(running_balance, 2)
+    }
+
+    return {
+        "stock_card": stock_card,
+        "summary": summary
+    }
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_stock_card(request):
+    data = json.loads(request.body)
+    start_date = data.get("start_date")
+    end_date = data.get("end_date")
+    try:
+        report = generate_stock_card(start_date, end_date)
+        return JsonResponse({"result": "success", "message": "Stock card is generated successfully.", "content": report}, status=200)
+    except ValueError as e:
+        logger.error("Error occurred while generating stock card: %s", e)
+        return JsonResponse({"result": "error", 'message': "Error occurred while generating stock card."}, status=400)
 
