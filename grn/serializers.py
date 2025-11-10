@@ -1,5 +1,7 @@
 from rest_framework import serializers
 from django.db.models import Q
+
+from stock.models import StockBalance
 from .models import GRN
 from customer.models import Customer
 from rate.models import Rate
@@ -115,4 +117,23 @@ class GRNCustomerSerializer(serializers.ModelSerializer):
         if data.get('net_price') is not None:
             data['net_price'] = Decimal(str(data['net_price'])).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) 
         return data
+
+class StockBalanceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StockBalance
+        fields = [
+            '_id',
+            'purchase_weight',
+            'transport_weight',
+            'net_weight',
+            'weight_date',
+            'is_deleted',
+            'created_by',
+            'created_at',
+            'updated_by',
+            'updated_at',
+            'record_time',
+        ]
+        read_only_fields = ['_id', 'record_time']
+
     

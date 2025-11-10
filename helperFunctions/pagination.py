@@ -113,3 +113,9 @@ def user_pagination(request, queryset):
     paginated_queryset = paginator.paginate_queryset(queryset, request)
     serializer = UserSerializer(paginated_queryset, many=True)
     return paginator.get_paginated_response(serializer.data)
+
+def stock_balance_pagination(request, queryset):
+    paginator = Pagination()
+    paginated_queryset = paginator.paginate_queryset(queryset, request)
+    serializer = StockBalanceSerializer(paginated_queryset, many=True)
+    return paginator.get_paginated_response(serializer.data)

@@ -7,7 +7,7 @@ SECRET_KEY = 'django-insecure-tiy1z(bg51s@7%ygttzbs*bxkzcy%yahq&1a#4o3ulb2#02tcw
 
 DEBUG = True
 
-ALLOWED_HOSTS = ['192.168.25.51']
+ALLOWED_HOSTS = ['0.0.0.0']#'192.168.25.51'
 CORS_ALLOW_ALL_ORIGINS = True
 
 # Application definition
@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     'internal',
     'cron',
     'django_cron',
+    'stock'
 ]
 
 MIDDLEWARE = [

@@ -4,6 +4,8 @@ from django.db import IntegrityError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from datetime import datetime, date
+
+from django.utils.timezone import now
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
@@ -15,6 +17,9 @@ from helperFunctions.validations import *
 from helperFunctions.pagination import *
 from helperFunctions.status import *
 from helperFunctions.roles import *
+from stock.models import BalanceHistory
+from stock.type_enum import StockOn
+from stock.views import add_purchase_stock
 from .models import GRN
 from django.db.models import Q
 from utils.permissions import role_required
@@ -161,6 +166,9 @@ def upload_csv_file(request) :
             columns_to_check = ["RECORD NO", "MATERIAL", "FIRM", "NET", "DATE1"]
             df.dropna(subset=columns_to_check, inplace=True)
             data_list = df.to_dict(orient="records")
+
+            # stock variables
+            total_purchase_weight = {}
             
             # Process each record
             for record in data_list :
@@ -299,6 +307,19 @@ def upload_csv_file(request) :
                         updated_by=request.user.username
                     )
                     grn.save()
+
+                    # --- Update Hash Map for Stock Balance ---
+                    date_key = grn.first_date
+
+                    # If the date exists, just add net_weight, otherwise initialize
+                    if date_key in total_purchase_weight:
+                        total_purchase_weight[date_key]["purchase_weight"] += float(grn.net_weight)
+                    else:
+                        total_purchase_weight[date_key] = {
+                            "purchase_weight": float(grn.net_weight),
+                            "transport_weight": 0.0,  # default
+                        }
+
                     customer = Customer.objects.filter(TIN=customer_TIN).first()
                     if not customer :
                         # register customer
@@ -321,12 +342,16 @@ def upload_csv_file(request) :
                     logger.error(f"Checked at {e}, not time yet")
                     skipped_records["invalid_firm"].append(record["RECORD NO"])
                     continue
+
+            # pass to stock function to add purchase weights
+            stock_balance = add_purchase_stock(total_purchase_weight, request)
             # record action log
             return JsonResponse({
                 "result" : "success",
                 "message": "File uploaded successfully",
                 "skipped_records" : skipped_records,
-                "total_records" : GRN.objects.count()
+                "total_records" : GRN.objects.count(),
+                "stock_balance" : stock_balance,
             }, status=status.HTTP_200_OK)
         except Exception as e:
             logger.error("Error occurred while uploading file: %s", e)

@@ -2,6 +2,8 @@ from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
+
+from stock.views import add_transport_stock
 from utils.permissions import role_required
 from utils.exceptions import *
 from django.shortcuts import get_object_or_404, get_list_or_404
@@ -130,6 +132,8 @@ def upload_execl_file(request):
             "dropped_rows": [],
             "invalid_data": []
         }
+        # stock variables
+        total_transport_weight = {}
         try:
             # Ensure the file is an Excel file
             if not csv_file.name.endswith(".xlsx"):
@@ -217,6 +221,18 @@ def upload_execl_file(request):
                         updated_at=today
                     )
                     scrap.save()
+
+                    # --- Update Hash Map for Stock Balance ---
+                    date_key = scrap.first_date
+
+                    # If the date exists, just add net_weight, otherwise initialize
+                    if date_key in total_transport_weight:
+                        total_transport_weight[date_key]["transport_weight"] += float(scrap.net_weight)
+                    else:
+                        total_transport_weight[date_key] = {
+                            "purchase_weight": 0.0,
+                            "transport_weight": float(scrap.net_weight),
+                        }
                 except IntegrityError :
                     skipped_records["invalid_data"].append({
                         "record_no": record["RECORD NO"],
@@ -232,12 +248,16 @@ def upload_execl_file(request):
                     })
                     continue
             #process_in_background()
+
+            # pass to stock function to add purchase weights
+            stock_balance = add_transport_stock(total_transport_weight, request)
             # record action log
             return JsonResponse({
                 "result" : "success",
                 "message": "File uploaded successfully",
                 "skipped_records" : skipped_records,
-                "total_records" : FactoryScrapMove.objects.count()
+                "total_records" : FactoryScrapMove.objects.count(),
+                "stock_balance" : stock_balance,
             }, status=status.HTTP_200_OK)
         except Exception as e:
             logger.error("Error occurred while uploading file: %s", e)
@@ -323,9 +343,9 @@ def filter_factory_scrap_records(request):
         
         # Filter by Status
         if _status:
-            grn_records = grn_records.filter(status=_status)
+            factory_records = factory_records.filter(status=_status)
         else:
-            grn_records = grn_records.filter(status__in=allowed_status)
+            factory_records = factory_records.filter(status__in=allowed_status)
         
         paginated_records = scrap_move_pagination(request, factory_records)
         return JsonResponse({"result": "success", "message": "Factory scrap move are filtered successfully", "data": paginated_records.data}, status=status.HTTP_200_OK)
