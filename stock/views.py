@@ -214,9 +214,6 @@ def get_stock_balance(request):
 
 
 def generate_stock_report(start_date: str = "", end_date: str = "", report_type: str = "all") -> dict:
-    """
-    Generate a stock report with the default 30-day range if dates are missing.
-    """
     if report_type not in {"all", "purchase", "transport"}:
         raise ValueError("report_type must be 'all', 'purchase', or 'transport'")
 
@@ -362,9 +359,8 @@ def generate_stock_card(start_date: str, end_date: str) -> dict:
     delta = timedelta(days=1)
 
     while current <= end:
-        weight_date_str = current.strftime('%d.%m.%Y')  # e.g., 10.11.2025
+        weight_date_str = current.strftime('%d.%m.%Y')
 
-        # === GRN: Purchase ===
         grn_records = GRN.objects.filter(
             first_date=weight_date_str,
             is_deleted=False
@@ -377,7 +373,6 @@ def generate_stock_card(start_date: str, end_date: str) -> dict:
             float(r.net_weight or 0) for r in grn_records
         )
 
-        # === DailyScrapMoveAggregate: Transport ===
         agg_records = DailyScrapMoveAggregate.objects.filter(
             weight_date=weight_date_str,
             is_deleted=False
@@ -391,15 +386,12 @@ def generate_stock_card(start_date: str, end_date: str) -> dict:
             current += delta
             continue
 
-        # === Daily Balance ===
         daily_balance = purchase_weight - transport_weight
         running_balance += daily_balance
 
-        # === Totals ===
         total_purchase_weight += purchase_weight
         total_transport_weight += transport_weight
 
-        # === Append Row ===
         stock_card.append({
             "weight_date": weight_date_str,
             "GRN No": grn_no_display,
@@ -411,7 +403,6 @@ def generate_stock_card(start_date: str, end_date: str) -> dict:
 
         current += delta
 
-    # === Summary ===
     summary = {
         "total_purchase_weight": round(total_purchase_weight, 2),
         "total_transport_weight": round(total_transport_weight, 2),
