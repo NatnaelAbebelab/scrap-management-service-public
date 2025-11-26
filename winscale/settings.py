@@ -32,7 +32,8 @@ INSTALLED_APPS = [
     'internal',
     'cron',
     'django_cron',
-    'stock'
+    'stock',
+    'material'
 ]
 
 MIDDLEWARE = [

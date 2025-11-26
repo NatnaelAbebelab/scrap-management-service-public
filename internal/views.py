@@ -2,7 +2,6 @@ from django.conf import settings
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
-
 from stock.views import add_transport_stock
 from utils.permissions import role_required
 from utils.exceptions import *
@@ -221,7 +220,6 @@ def upload_execl_file(request):
                         updated_at=today
                     )
                     scrap.save()
-
                     # --- Update Hash Map for Stock Balance ---
                     date_key = scrap.first_date
 
@@ -248,7 +246,6 @@ def upload_execl_file(request):
                     })
                     continue
             #process_in_background()
-
             # pass to stock function to add purchase weights
             stock_balance = add_transport_stock(total_transport_weight, request)
             # record action log

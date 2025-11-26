@@ -1,0 +1,16 @@
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('add-material-requisition/', views.add_material_requisition, name='add-material-requisition'),
+    path('get-material-requisitions/', views.get_material_requisitions, name='get-material-requisitions'),
+    path('edit-material-requisition/', views.edit_material_requisition, name='edit-material-requisition'),
+    path('approve-material-requisition/<str:requisition_id>/', views.approve_material_requisition, name='approve-material-requisition'),
+    path('delete-material-requisition/<str:requisition_id>/', views.delete_material_requisition, name='delete-material-requisition'),
+
+    path('add-raw-material-issue/', views.add_raw_material_issue, name='add-raw-material-issue'),
+    path('get-raw-material-issues/', views.get_raw_material_issues, name='get-raw-material-issue'),
+    path('edit-raw-material-issue/', views.edit_raw_material_issue, name='edit-raw-material-issue'),
+    path('change-status-issue/<str:issue_id>/', views.change_raw_material_issue_status, name='change-status-issue'),
+    path('delete-raw-material-issue/<str:issue_id>/', views.delete_raw_material_issue, name='delete-raw-material-issue'),
+]
