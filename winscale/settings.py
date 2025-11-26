@@ -7,7 +7,7 @@ SECRET_KEY = 'django-insecure-tiy1z(bg51s@7%ygttzbs*bxkzcy%yahq&1a#4o3ulb2#02tcw
 
 DEBUG = True
 
-ALLOWED_HOSTS = ['0.0.0.0']#'192.168.25.51'
+ALLOWED_HOSTS = ['0.0.0.0']
 CORS_ALLOW_ALL_ORIGINS = True
 
 # Application definition
@@ -108,8 +108,8 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'scrap-management-service',
-        'USER': 'postgres',
-        'PASSWORD': 'nati',
+        'USER': '******',
+        'PASSWORD': '********',
         'HOST': 'localhost',
         'PORT': '5432',
     }
