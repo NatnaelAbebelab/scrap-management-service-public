@@ -56,3 +56,8 @@ class RawMaterialIssueSerializer(serializers.ModelSerializer):
             "updated_at",
             "is_deleted",
         ]
+
+class ApprovedMaterialRequisitionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MaterialRequisition
+        fields = ['_id', 'requisition_no', 'requisition_date']
