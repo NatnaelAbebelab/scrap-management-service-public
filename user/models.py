@@ -20,7 +20,6 @@ class CustomUser(AbstractUser):
         ("finance", "Finance"),
         ("manager", "General Manager"),
     ]
-    
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="purchaser")
     phone = models.CharField(max_length=20, blank=True, null=True)
     is_deleted = models.BooleanField(default=False)

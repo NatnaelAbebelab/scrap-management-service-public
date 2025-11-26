@@ -1,5 +1,7 @@
 from rest_framework.pagination import PageNumberPagination, LimitOffsetPagination
 from collections import defaultdict
+
+from material.serializers import MaterialRequisitionSerializer, RawMaterialIssueSerializer
 from rate.serializers import *
 from grn.serializers import *
 from internal.serializers import *
@@ -118,4 +120,16 @@ def stock_balance_pagination(request, queryset):
     paginator = Pagination()
     paginated_queryset = paginator.paginate_queryset(queryset, request)
     serializer = StockBalanceSerializer(paginated_queryset, many=True)
+    return paginator.get_paginated_response(serializer.data)
+
+def material_requisition_pagination(request, queryset):
+    paginator = Pagination()
+    paginated_queryset = paginator.paginate_queryset(queryset, request)
+    serializer = MaterialRequisitionSerializer(paginated_queryset, many=True)
+    return paginator.get_paginated_response(serializer.data)
+
+def raw_material_issue_pagination(request, queryset):
+    paginator = Pagination()
+    paginated_queryset = paginator.paginate_queryset(queryset, request)
+    serializer = RawMaterialIssueSerializer(paginated_queryset, many=True)
     return paginator.get_paginated_response(serializer.data)

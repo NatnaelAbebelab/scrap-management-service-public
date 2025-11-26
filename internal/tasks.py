@@ -1,6 +1,4 @@
 from threading import Thread
-
-from cron.tasks import process_aggregate_daily_factory_scrap_moves
 from .models import FactoryScrapMove, Agreement, AgreementRange, DailyScrapMoveAggregate, ThreadTrack, Agency
 from django.db.models import Sum,FloatField, F, Q, Max, DateTimeField, ExpressionWrapper, DateField
 from django.db.models.functions import Cast
@@ -88,7 +86,7 @@ def daily_aggregate_scap_move():
                         agency.save()
 
         processed_count += 1
-        latest_processed_date = max(latest_processed_date, parsed_first_date)  # Track the latest processed date
+        latest_processed_date = max(latest_processed_date, parsed_first_date)  # Track latest processed date
 
     # Update ThreadTrack with the latest processed date only once
     if processed_count > 0:

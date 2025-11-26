@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from django.db.models import Q
-
 from stock.models import StockBalance
 from .models import GRN
 from customer.models import Customer
@@ -135,5 +134,4 @@ class StockBalanceSerializer(serializers.ModelSerializer):
             'record_time',
         ]
         read_only_fields = ['_id', 'record_time']
-
     
