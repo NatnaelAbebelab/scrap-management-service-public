@@ -108,8 +108,8 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'scrap-management-service',
-        'USER': 'postgres',
-        'PASSWORD': 'nati',
+        'USER': '********',
+        'PASSWORD': '*******',
         'HOST': 'localhost',
         'PORT': '5432',
     }
