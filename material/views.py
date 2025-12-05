@@ -10,8 +10,7 @@ from rest_framework.permissions import IsAuthenticated
 from helperFunctions.pagination import material_requisition_pagination, raw_material_issue_pagination
 from material.enums import Plants, RequisitionStatus, IssueStatus
 from material.models import MaterialRequisition, MaterialRequisitionItem, RawMaterialIssue
-from material.serializers import MaterialRequisitionSerializer, RawMaterialIssueSerializer, \
-    ApprovedMaterialRequisitionSerializer
+from material.serializers import MaterialRequisitionSerializer, RawMaterialIssueSerializer, ApprovedMaterialRequisitionSerializer
 
 # Create your views here.
 logger = logging.getLogger(__name__)
