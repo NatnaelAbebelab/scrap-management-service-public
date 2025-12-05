@@ -318,7 +318,7 @@ def generate_stock_report(start_date: str = "", end_date: str = "", report_type:
         "current_balance": current,
     }
 
-@api_view(['GET'])
+@api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def get_stock_report(request):
     data = json.loads(request.body)
