@@ -107,8 +107,18 @@ def add_transport_stock(transport_weight, request):
 
     return saved_records
 
+@permission_classes([IsAuthenticated])
+def add_transport_balance(transport_weight, request):
+    active_cumulated_balance = CumulativeBalance.objects.filter(is_active=True).first()
+
+    if active_cumulated_balance:
+        active_cumulated_balance.current_balance -= transport_weight
+        active_cumulated_balance.save()
+
+    return active_cumulated_balance.current_balance
+
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "finance", "manager"])])
 def add_beginning_balance(request):
     if request.method == "POST":
         data = json.loads(request.body)

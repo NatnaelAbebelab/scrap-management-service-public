@@ -11,6 +11,7 @@ from helperFunctions.pagination import material_requisition_pagination, raw_mate
 from material.enums import Plants, RequisitionStatus, IssueStatus
 from material.models import MaterialRequisition, MaterialRequisitionItem, RawMaterialIssue
 from material.serializers import MaterialRequisitionSerializer, RawMaterialIssueSerializer, ApprovedMaterialRequisitionSerializer
+from stock.views import add_transport_balance
 
 # Create your views here.
 logger = logging.getLogger(__name__)
@@ -424,6 +425,7 @@ def edit_raw_material_issue(request):
 @permission_classes([IsAuthenticated])
 def change_raw_material_issue_status(request, issue_id):
     try:
+        stock_balance = 0
         if not issue_id:
             return JsonResponse({
                 "result": "error",
@@ -439,6 +441,8 @@ def change_raw_material_issue_status(request, issue_id):
 
         elif issue.issue_status == IssueStatus.ISSUED.value:
             new_status = IssueStatus.APPROVED.value
+            total_transport_weight = issue.material_requisition.total_requisition
+            stock_balance = add_transport_balance(total_transport_weight, request)
 
         else:
             return JsonResponse({
@@ -459,12 +463,14 @@ def change_raw_material_issue_status(request, issue_id):
         return JsonResponse({
             "result": "success",
             "message": f"Status updated to {new_status}",
-            "content": serialized_issue.data
+            "content": serialized_issue.data,
+            "stock_balance": stock_balance
         }, status=status.HTTP_200_OK)
 
     except Http404:
         return JsonResponse({"result": "error", "message": "Resource is not found"}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
+        logger.error(f"Error occurred while changing issue status: {e}")
         return JsonResponse({
             "result": "error",
             "message": str(e)

@@ -220,17 +220,18 @@ def upload_execl_file(request):
                         updated_at=today
                     )
                     scrap.save()
-                    # --- Update Hash Map for Stock Balance ---
-                    date_key = scrap.first_date
 
-                    # If the date exists, just add net_weight, otherwise initialize
-                    if date_key in total_transport_weight:
-                        total_transport_weight[date_key]["transport_weight"] += float(scrap.net_weight)
-                    else:
-                        total_transport_weight[date_key] = {
-                            "purchase_weight": 0.0,
-                            "transport_weight": float(scrap.net_weight),
-                        }
+                    # # --- Update Hash Map for Stock Balance ---
+                    # date_key = scrap.first_date
+                    #
+                    # # If the date exists, just add net_weight, otherwise initialize
+                    # if date_key in total_transport_weight:
+                    #     total_transport_weight[date_key]["transport_weight"] += float(scrap.net_weight)
+                    # else:
+                    #     total_transport_weight[date_key] = {
+                    #         "purchase_weight": 0.0,
+                    #         "transport_weight": float(scrap.net_weight),
+                    #     }
                 except IntegrityError :
                     skipped_records["invalid_data"].append({
                         "record_no": record["RECORD NO"],
@@ -246,15 +247,17 @@ def upload_execl_file(request):
                     })
                     continue
             #process_in_background()
+
             # pass to stock function to add purchase weights
-            stock_balance = add_transport_stock(total_transport_weight, request)
+            #stock_balance = add_transport_stock(total_transport_weight, request)
+
             # record action log
             return JsonResponse({
                 "result" : "success",
                 "message": "File uploaded successfully",
                 "skipped_records" : skipped_records,
                 "total_records" : FactoryScrapMove.objects.count(),
-                "stock_balance" : stock_balance,
+                #"stock_balance": stock_balance,
             }, status=status.HTTP_200_OK)
         except Exception as e:
             logger.error("Error occurred while uploading file: %s", e)
