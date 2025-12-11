@@ -20,7 +20,8 @@ class MaterialRequisition(models.Model):
     )
     requisition_date = models.CharField(max_length=255, blank=True)
     requisition_no = models.CharField(max_length=255, blank=True)
-    total_requisition = models.FloatField(max_length=255, default=0.0)
+    total_requisition_quantity = models.FloatField(max_length=255, default=0.0)
+    total_requisition_price = models.FloatField(max_length=255, default=0.0)
     requisition_status = models.CharField(
         max_length=50,
         choices=[(s.value, s.name.title()) for s in RequisitionStatus],
