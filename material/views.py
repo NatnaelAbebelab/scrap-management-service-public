@@ -108,12 +108,14 @@ def add_material_requisition(request):
             updated_at=today,
         )
 
-        total_requisition = 0
+        total_requisition_quantity = 0
+        total_requisition_price = 0
         items_data = data.get("items", [])
         for item_data in items_data:
             quantity = float(item_data.get("quantity", 0))
             unit_price = float(item_data.get("unit_price", 0))
             total_price = quantity * unit_price
+            total_requisition_quantity += quantity
 
             MaterialRequisitionItem.objects.create(
                 material_requisition=requisition,
@@ -123,10 +125,11 @@ def add_material_requisition(request):
                 unit_price=unit_price,
                 total_price=total_price
             )
-            total_requisition += total_price
+            total_requisition_price += total_price
 
         # Update total requisition
-        requisition.total_requisition = total_requisition
+        requisition.total_requisition_quantity = total_requisition_quantity
+        requisition.total_requisition_price = total_requisition_price
         requisition.save()
 
         serialized_requisition = MaterialRequisitionSerializer(requisition)
@@ -441,7 +444,7 @@ def change_raw_material_issue_status(request, issue_id):
 
         elif issue.issue_status == IssueStatus.ISSUED.value:
             new_status = IssueStatus.APPROVED.value
-            total_transport_weight = issue.material_requisition.total_requisition
+            total_transport_weight = issue.material_requisition.total_requisition_quantity
             stock_balance = add_transport_balance(total_transport_weight, request)
 
         else:
