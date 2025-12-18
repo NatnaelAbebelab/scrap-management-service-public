@@ -16,6 +16,7 @@ from stock.models import StockBalance, CumulativeBalance
 from stock.utils.date_format import _default_date_range, parse_date
 from utils.permissions import role_required
 import json
+
 # Create your views here.
 logger = logging.getLogger(__name__)
 today = datetime.today().strftime('%Y-%m-%d')
