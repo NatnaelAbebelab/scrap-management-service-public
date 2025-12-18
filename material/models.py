@@ -10,14 +10,37 @@ class ScrapItemManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().filter(is_deleted=False)
 
+class MeltingPlants(models.Model):
+    _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    plant_name = models.CharField(max_length=255, blank=True)
+    is_deleted = models.BooleanField(default=False)
+    created_by = models.CharField(max_length=255, blank=True)
+    created_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="plant_created_by")
+    created_at = models.CharField(max_length=255, blank=True)
+    updated_by = models.CharField(max_length=255, blank=True)
+    updated_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="plant_updated_by")
+    updated_at = models.CharField(max_length=255, blank=True)
+    record_time = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self._id
+
+    objects = ScrapItemManager()
+    all_objects = models.Manager()
+
+    def delete(self, *args, **kwargs):
+        self.is_deleted = True
+        self.updated_at = datetime.today().strftime('%Y-%m-%d')
+        self.save()
+
+    def restore(self):
+        self.is_deleted = False
+        self.updated_at = datetime.today().strftime('%Y-%m-%d')
+        self.save()
 
 class MaterialRequisition(models.Model):
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    plant = models.CharField(
-        max_length=255,
-        choices=[(p.value, p.name.replace("_", " ").title()) for p in Plants],
-        default=Plants.OLD_PLANT.value
-    )
+    melting_plant = models.ForeignKey(MeltingPlants, on_delete=models.SET_NULL, null=True, blank=True)
     requisition_date = models.CharField(max_length=255, blank=True)
     requisition_no = models.CharField(max_length=255, blank=True)
     total_requisition_quantity = models.FloatField(max_length=255, default=0.0)
@@ -78,6 +101,7 @@ class RawMaterialIssue(models.Model):
         choices=[(s.value, s.name.title()) for s in IssueStatus],
         default=IssueStatus.NEW.value
     )
+    issue_weight = models.FloatField(default=0.0)
     is_deleted = models.BooleanField(default=False)
     created_by = models.CharField(max_length=255, blank=True)
     created_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="issue_created_by")

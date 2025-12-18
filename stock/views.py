@@ -165,9 +165,13 @@ def get_active_balance_summary(request):
     try:
         active_balance = CumulativeBalance.objects.filter(is_active=True, is_deleted=False).first()
         if not active_balance:
-            return {"result": "error", "message": "No active cumulative balance found"}
+            return JsonResponse({
+                "result": "error",
+                "message": "No active balance found.",
+                "content": ""
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-        start_date = datetime.strptime(active_balance.created_at, "%Y-%d-%m").date()
+        start_date = datetime.strptime(active_balance.created_at, "%Y-%m-%d").date()
 
         total_purchase = 0.0
         total_transport = 0.0
@@ -197,14 +201,14 @@ def get_active_balance_summary(request):
             }
         }
 
-        return JsonResponse(response_data, status=200)
+        return JsonResponse(response_data, status=status.HTTP_200_OK)
 
     except Exception as e:
         logger.error("Error while fetching active balance summary: %s", e)
         return JsonResponse({
             "result": "error",
             "message": "An error occurred while fetching the summary."
-        }, status=400)
+        }, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])

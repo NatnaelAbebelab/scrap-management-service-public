@@ -1,7 +1,15 @@
 from rest_framework import serializers
 
-from material.models import MaterialRequisitionItem, MaterialRequisition, RawMaterialIssue
+from material.models import MaterialRequisitionItem, MaterialRequisition, RawMaterialIssue, MeltingPlants
 
+
+class MeltingPlantsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MeltingPlants
+        fields = [
+            "_id",
+            "plant_name",
+        ]
 
 class MaterialRequisitionItemSerializer(serializers.ModelSerializer):
     class Meta:
@@ -17,12 +25,13 @@ class MaterialRequisitionItemSerializer(serializers.ModelSerializer):
 
 class MaterialRequisitionSerializer(serializers.ModelSerializer):
     items = MaterialRequisitionItemSerializer(many=True, read_only=True)
+    melting_plant = MeltingPlantsSerializer(read_only=True)
 
     class Meta:
         model = MaterialRequisition
         fields = [
             "_id",
-            "plant",
+            "melting_plant",
             "requisition_date",
             "requisition_no",
             "total_requisition_quantity",
@@ -39,6 +48,7 @@ class MaterialRequisitionSerializer(serializers.ModelSerializer):
 
 class RawMaterialIssueSerializer(serializers.ModelSerializer):
     requisition_no = serializers.CharField(source='material_requisition.requisition_no', read_only=True)
+    total_requisition_quantity = serializers.CharField(source='material_requisition.total_requisition_quantity', read_only=True)
 
     class Meta:
         model = RawMaterialIssue
@@ -49,6 +59,8 @@ class RawMaterialIssueSerializer(serializers.ModelSerializer):
             "issue_date",
             "issue_no",
             "issue_status",
+            "issue_weight",
+            "total_requisition_quantity",
             "created_by",
             "created_by_id",
             "created_at",
@@ -61,4 +73,4 @@ class RawMaterialIssueSerializer(serializers.ModelSerializer):
 class ApprovedMaterialRequisitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = MaterialRequisition
-        fields = ['_id', 'requisition_no', 'requisition_date']
+        fields = ['_id', 'requisition_no', 'requisition_date', 'total_requisition_quantity']
