@@ -1,8 +1,9 @@
 from enum import Enum
 
 class Plants(Enum):
-    OLD_PLANT = "old_plant"
-    NEW_PLANT = "new_plant"
+    ROLLING_MILL_1 = "rolling_mill_1"
+    ROLLING_MILL_2 = "rolling_mill_2"
+    NEW_MELTING_PLANT = "new_melting_plant"
 
 class IssueStatus(Enum):
     NEW = "new"
