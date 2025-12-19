@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from django.db import models
-from material.enums import Plants, RequisitionStatus, IssueStatus
+from material.enums import RequisitionStatus, IssueStatus
 from user.models import CustomUser
 
 # Create your models here.

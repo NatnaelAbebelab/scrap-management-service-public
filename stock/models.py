@@ -11,6 +11,7 @@ class StockBalance(models.Model):
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     purchase_weight = models.FloatField(max_length=255, default=0.0)
     transport_weight = models.FloatField(max_length=255, default=0.0)
+    issue_no = models.CharField(max_length=255, blank=True)
     net_weight = models.FloatField(max_length=255, default=0.0)
     weight_date = models.CharField(max_length=255, blank=True)
     is_deleted = models.BooleanField(default=False)
