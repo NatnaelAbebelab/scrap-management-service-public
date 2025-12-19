@@ -649,58 +649,72 @@ def edit_raw_material_issue(request):
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def change_raw_material_issue_status(request, issue_id):
-    try:
-        stock_balance = 0
-        if not issue_id:
+    with transaction.atomic():
+        try:
+            stock_balance_result = None
+
+            if not issue_id:
+                return JsonResponse({
+                    "result": "error",
+                    "message": "Issue id is required",
+                    "content": ""
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            issue = get_object_or_404(RawMaterialIssue, _id=issue_id, is_deleted=False)
+
+            if issue.issue_status == IssueStatus.NEW.value:
+                new_status = IssueStatus.ISSUED.value
+
+            elif issue.issue_status == IssueStatus.ISSUED.value:
+                new_status = IssueStatus.APPROVED.value
+                total_transport_weight = issue.issue_weight
+
+                stock_balance_result = add_transport_balance(
+                    total_transport_weight=total_transport_weight,
+                    request=request,
+                    issue_date=issue.issue_date,
+                    issue_no=issue.issue_no
+                )
+
+            else:
+                return JsonResponse({
+                    "result": "error",
+                    "message": f"Cannot change status from '{issue.issue_status}'",
+                    "content": ""
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            issue.issue_status = new_status
+            issue.updated_by = request.user.username
+            issue.updated_by_id = request.user
+            issue.updated_at = today
+            issue.save()
+
+            serialized_issue = RawMaterialIssueSerializer(issue)
+
+            response_data = {
+                "result": "success",
+                "message": f"Status updated to {new_status}",
+                "content": serialized_issue.data,
+            }
+
+            if stock_balance_result:
+                response_data["stock_balance"] = stock_balance_result
+
+            return JsonResponse(response_data, status=status.HTTP_200_OK)
+
+        except Http404:
             return JsonResponse({
                 "result": "error",
-                "message": "Issue id is required",
-                "content": ""
-            }, status=status.HTTP_400_BAD_REQUEST)
+                "message": "Resource is not found"
+            }, status=status.HTTP_404_NOT_FOUND)
 
-        issue = get_object_or_404(RawMaterialIssue, _id=issue_id, is_deleted=False)
-
-        # Status transition logic
-        if issue.issue_status == IssueStatus.NEW.value:
-            new_status = IssueStatus.ISSUED.value
-
-        elif issue.issue_status == IssueStatus.ISSUED.value:
-            new_status = IssueStatus.APPROVED.value
-            total_transport_weight = issue.issue_weight
-            stock_balance = add_transport_balance(total_transport_weight, request)
-
-        else:
+        except Exception as e:
+            logger.error(f"Error occurred while changing issue status: {e}")
             return JsonResponse({
                 "result": "error",
-                "message": f"Cannot change status from '{issue.issue_status}'",
-                "content": ""
+                "message": "Error occurred while changing issue status",
+                "content": str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Apply update
-        issue.issue_status = new_status
-        issue.updated_by = request.user.username
-        issue.updated_by_id = request.user
-        issue.updated_at = today
-        issue.save()
-
-        serialized_issue = RawMaterialIssueSerializer(issue)
-
-        return JsonResponse({
-            "result": "success",
-            "message": f"Status updated to {new_status}",
-            "content": serialized_issue.data,
-            "stock_balance": stock_balance
-        }, status=status.HTTP_200_OK)
-
-    except Http404:
-        return JsonResponse({"result": "error", "message": "Resource is not found"}, status=status.HTTP_404_NOT_FOUND)
-    except Exception as e:
-        logger.error(f"Error occurred while changing issue status: {e}")
-        return JsonResponse({
-            "result": "error",
-            "message": "Error occurred while changing issue status",
-            "content": str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
@@ -849,7 +863,7 @@ def export_material_requisition_report(request):
             }, status=status.HTTP_400_BAD_REQUEST)
 
 
-@api_view(['GET'])
+@api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def material_issue_report(request):
     with transaction.atomic():
@@ -905,7 +919,7 @@ def material_issue_report(request):
                 "content": str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
 
-@api_view(['GET'])
+@api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def export_material_issue_report(request):
     with transaction.atomic():
