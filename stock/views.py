@@ -272,26 +272,23 @@ def get_active_balance_summary(request):
                 "content": ""
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        start_date = datetime.strptime(active_balance.created_at, "%Y-%m-%d").date()
+        start_date = datetime.strptime(active_balance.created_at, "%Y-%m-%d")
 
-        total_purchase = 0.0
-        total_transport = 0.0
+        stock_records = StockBalance.objects.filter(
+            weight_date__gte=start_date,
+            is_deleted=False
+        ).aggregate(
+            total_purchase=Sum('purchase_weight'),
+            total_transport=Sum('transport_weight')
+        )
 
-        stock_records = StockBalance.objects.all()
-
-        for stock in stock_records:
-            try:
-                weight_date = datetime.strptime(stock.weight_date, "%d.%m.%Y").date()
-                if weight_date >= start_date:
-                    total_purchase += stock.purchase_weight
-                    total_transport += stock.transport_weight
-            except ValueError:
-                continue
+        total_purchase = stock_records.get('total_purchase') or 0.0
+        total_transport = stock_records.get('total_transport') or 0.0
 
         response_data = {
             "result": "success",
             "active_balance": {
-                "_id": str(active_balance._id),
+                "_id": active_balance._id,
                 "created_by": active_balance.created_by,
                 "created_at": active_balance.created_at,
                 "current_balance": active_balance.current_balance,
