@@ -338,17 +338,17 @@ def aggregate_report(request) :
                 by_tin = True
                 if customer:
                     grn_records = grn_records.filter(customer=tin)
-            
+
             # Filter by material type
             if material_type and is_valid_material(material_type):
                 grn_records = grn_records.filter(material_type__iexact=material_type)
                 by_material_type = True
-            
+
             # Filter by plate no
             if plate_no:
                 by_plate_no = True
                 grn_records = grn_records.filter(plate_no__iexact=plate_no)
-                
+
             grn_records = grn_records.annotate(
                 casted_first_date=ToDate("first_date")
             )
@@ -358,13 +358,11 @@ def aggregate_report(request) :
             if end_date:
                 end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
                 grn_records = grn_records.filter(casted_first_date__lte=end_date)
-            
+
             # Filter by status
             if _status:
                 grn_records = grn_records.filter(status__iexact=_status)
-            else:
-                grn_records = grn_records.filter(status__in=allowed_status)
-                
+
             # aggregate periodically
             if period == "daily":
                 daily_report = daily_aggregate_report(grn_records, by_tin, by_material_type, by_plate_no)
