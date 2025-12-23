@@ -335,9 +335,6 @@ def generate_stock_report(start_date: str = "", end_date: str = "", report_type:
     elif not end_date:
         _, end_date = _default_date_range()
 
-    start_dt = parse_date(start_date)
-    end_dt = parse_date(end_date)
-
     qs = StockBalance.objects.filter(
         is_deleted=False,
         weight_date__gte=start_date,
