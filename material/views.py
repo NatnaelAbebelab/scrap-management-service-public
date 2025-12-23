@@ -531,7 +531,7 @@ def add_raw_material_issue(request):
 
         # Check whether all amounts of the requisition had been issued
         if requisition.total_requisition_quantity == total_issued:
-            return JsonResponse({"result": "success", "message": "All amounts of the requisition had been issued", "content": ""}, status=status.HTTP_200_OK)
+            return JsonResponse({"result": "error", "message": "All amounts of the requisition had been issued", "content": ""}, status=status.HTTP_400_BAD_REQUEST)
 
         # Check if issue weight exceeds remaining
         if issue_weight > remaining:
