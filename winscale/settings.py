@@ -107,9 +107,9 @@ WSGI_APPLICATION = 'winscale.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'scrap-management-service',
-        'USER': '********',
-        'PASSWORD': '*******',
+        'NAME': 'scrap-test-db-2',
+        'USER': 'postgres',
+        'PASSWORD': 'nati',
         'HOST': 'localhost',
         'PORT': '5432',
     }
