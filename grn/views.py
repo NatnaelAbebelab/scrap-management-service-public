@@ -1,3 +1,5 @@
+from cmath import exp
+
 from django.conf import settings
 from django.http import JsonResponse, Http404
 from django.db import IntegrityError
@@ -17,7 +19,7 @@ from helperFunctions.pagination import *
 from helperFunctions.status import *
 from helperFunctions.roles import *
 from stock.views import add_purchase_stock
-from .models import GRN
+from .models import GRN, GRNSerialNumber
 from django.db.models import Q
 from utils.permissions import role_required
 from utils.exceptions import *
@@ -25,6 +27,9 @@ from utils.grade_parser import parse_scrap_grade
 from decimal import Decimal, ROUND_HALF_UP
 import pandas as pd
 import re, uuid, os, logging
+
+from .service import increment_grn_serial_number
+
 # Create your views here.
 
 logger = logging.getLogger(__name__)
@@ -273,6 +278,7 @@ def upload_csv_file(request) :
                         continue
                 try :
                     customer_TIN = clean_tin(str(record["FIRM"]).strip())
+                    serial_number = increment_grn_serial_number()
                     grn = GRN(
                         record_no= record["RECORD NO"],
                         plate_no=record["PLATE NO"],
@@ -294,6 +300,7 @@ def upload_csv_file(request) :
                         light_rate=used_rate["L"],
                         fixed_rate = used_rate["F"],
                         driver_name=record["Driver name "],
+                        serial_no=serial_number,
                         net_price=net_price,
                         item_code="item_code",
                         status="new",
@@ -1003,3 +1010,70 @@ def edit_waste_deduction(request):
         except Exception as e:
             logger.error("Error occurred while editing deduction: %s", e)
             return JsonResponse({"result": "error", "message": "Error occurred while editing deduction"}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
+def initialize_grn_serial_number(request, initial_serial_number):
+    """
+    Initialize new grn serial number
+    """
+    try:
+        # First get the current active last used serial number
+        last_used_serial_num = GRNSerialNumber.objects.filter(status='active').first()
+        if last_used_serial_num and int(initial_serial_number) < last_used_serial_num.last_used_number:
+            return JsonResponse({"result": "error", "message": "Initial serial number is among used serial numbers"}, status=status.HTTP_400_BAD_REQUEST)
+
+        new_initial_serial_number = GRNSerialNumber.objects.create(
+            initial_number=int(initial_serial_number),
+        )
+        new_initial_serial_number.save()
+        GRNSerialNumber.objects.exclude(_id=new_initial_serial_number._id).update(status='expired')
+        return JsonResponse({"result": "success", "message": "New initial GRN Serial Number is set."}, status=status.HTTP_200_OK)
+    except Exception as e:
+        logger.error("Error occurred while initializing new GRN Serial Number: %s", e)
+        return JsonResponse({"result": "error", "message": "Error occurred while initializing new GRN Serial Number", "content": e}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_grn_serial_numbers(request):
+    """
+    Get GRN Serial numbers
+    """
+    try:
+        numbers = GRNSerialNumber.objects.all()
+        serializer = GRNSerialNumberSerializer(numbers, many=True)
+        return JsonResponse({"result": "error", "message": "GRN Serial Numbers", "content": serializer.data}, status=status.HTTP_200_OK)
+    except Exception as e:
+        logger.error("Error occurred while getting GRN Serial Numbers: %s", e)
+        return JsonResponse({"result": "error", "message": "Error occurred while getting GRN Serial Numbers", "content": e}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
+def delete_grn_serial_number(request, num_id):
+    """
+    Delete GRN Serial Number
+    """
+    try:
+        serial_number = get_object_or_404(GRNSerialNumber.objects, _id=num_id)
+        serial_number.delete()
+        return JsonResponse({"result": "success", "message": "You've deleted GRN Serial number successfully."}, status=status.HTTP_200_OK)
+    except Http404:
+        return JsonResponse({"result": "error", "message": "GRN serial number record not found."}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error("Error occurred while deleting GRN Serial Number: %s", e)
+        return JsonResponse({"result": "error", "message": "Error occurred while deleting GRN Serial Number", "content": e}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def get_scrap_receipt(request, record_no):
+    try:
+        # Get GRN record
+        grn_record = get_object_or_404(GRN.objects, record_no=record_no)
+        serializer = GRNCustomerSerializer(grn_record)
+        return JsonResponse({"result": "success", "message": record_no + " receipt is generated successfully.", "content": serializer.data}, status=status.HTTP_200_OK)
+    except Http404:
+        logger.error("No record found under given record no: %s", record_no)
+        return JsonResponse({"result": "error", "message": "No record found under given record no."}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error("Error occurred while getting GRN record: %s", e)
+        return JsonResponse({"result": "error", "message": "Error occurred while getting GRN record", "content": e}, status=status.HTTP_400_BAD_REQUEST)
