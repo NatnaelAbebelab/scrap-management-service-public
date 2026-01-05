@@ -1,3 +1,4 @@
+from django.core.validators import MinValueValidator
 from django.db import models
 from datetime import datetime
 import uuid
@@ -28,6 +29,7 @@ class GRN(models.Model) :
     fixed_rate = models.CharField(max_length=255, blank=True, default="0")
     driver_name = models.CharField(max_length=255, blank=True)
     grn_no = models.CharField(blank=True, default='-')
+    serial_no = models.IntegerField(blank=True, default=0)
     net_price = models.CharField(max_length=255, blank=True, default='0.0')
     waste_deduction = models.CharField(max_length=255, blank=True, default='0.0') 
     item_code = models.CharField(max_length=255, blank=True)
@@ -47,6 +49,44 @@ class GRN(models.Model) :
 
     objects = ScrapItemManager()  # Only fetch active items
     all_objects = models.Manager()  # Fetch all items
+
+    def delete(self, *args, **kwargs):
+        self.is_deleted = True
+        self.updated_at = datetime.today().strftime('%Y-%m-%d')
+        self.save()
+
+    def restore(self):
+        self.is_deleted = False
+        self.updated_at = datetime.today().strftime('%Y-%m-%d')
+        self.save()
+
+
+class GRNSerialNumber(models.Model):
+    _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    initial_number = models.IntegerField(
+        validators=[
+            MinValueValidator(10000, message="Ensure this value has at least 5 digits."),
+        ],
+        help_text="Enter a 5-digit Serial code.", default=10000
+    )
+    last_used_number = models.IntegerField(
+        validators=[
+            MinValueValidator(10000, message="Ensure this value has at least 5 digits."),
+        ],
+        help_text="Enter a 5-digit Serial code.", default=0)
+    status = models.CharField(max_length=255, blank=True, default='active')
+    is_deleted = models.BooleanField(default=False)
+    created_by = models.CharField(max_length=255, blank=True)
+    created_at = models.CharField(max_length=255, blank=True)
+    updated_by = models.CharField(max_length=255, blank=True)
+    updated_at = models.CharField(max_length=255, blank=True)
+    record_time = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self._id
+
+    objects = ScrapItemManager()
+    all_objects = models.Manager()
 
     def delete(self, *args, **kwargs):
         self.is_deleted = True

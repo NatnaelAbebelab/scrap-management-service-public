@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from django.db.models import Q
 from stock.models import StockBalance
-from .models import GRN
+from .models import GRN, GRNSerialNumber
 from customer.models import Customer
 from rate.models import Rate
 from datetime import datetime
@@ -135,3 +135,12 @@ class StockBalanceSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['_id', 'record_time']
     
+class GRNSerialNumberSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GRNSerialNumber
+        fields = [
+            '_id',
+            'initial_number',
+            'last_used_number',
+            'status',
+        ]
