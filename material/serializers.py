@@ -2,7 +2,6 @@ from rest_framework import serializers
 
 from material.models import MaterialRequisitionItem, MaterialRequisition, RawMaterialIssue, MeltingPlants
 
-
 class MeltingPlantsSerializer(serializers.ModelSerializer):
     class Meta:
         model = MeltingPlants
@@ -26,7 +25,7 @@ class MaterialRequisitionItemSerializer(serializers.ModelSerializer):
 class MaterialRequisitionSerializer(serializers.ModelSerializer):
     items = MaterialRequisitionItemSerializer(many=True, read_only=True)
     melting_plant = MeltingPlantsSerializer(read_only=True)
-
+    
     class Meta:
         model = MaterialRequisition
         fields = [
@@ -49,7 +48,7 @@ class MaterialRequisitionSerializer(serializers.ModelSerializer):
 class RawMaterialIssueSerializer(serializers.ModelSerializer):
     requisition_no = serializers.CharField(source='material_requisition.requisition_no', read_only=True)
     total_requisition_quantity = serializers.CharField(source='material_requisition.total_requisition_quantity', read_only=True)
-
+    
     class Meta:
         model = RawMaterialIssue
         fields = [

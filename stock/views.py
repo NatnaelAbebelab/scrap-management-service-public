@@ -13,7 +13,6 @@ from stock.models import StockBalance, CumulativeBalance
 from stock.utils.date_format import _default_date_range, parse_date, convert_date_format
 from utils.permissions import role_required
 import json
-
 # Create your views here.
 logger = logging.getLogger(__name__)
 today = datetime.today().strftime('%Y-%m-%d')
@@ -159,6 +158,7 @@ def add_transport_balance(total_transport_weight, request, issue_date, issue_no)
     3. If not found: create a new record with purchase_weight=0, net_weight=-total_transport_weight
     """
     try:
+        active_cumulated_balance = CumulativeBalance.objects.filter(is_active=True).first()
         # Convert issue_date to string if it's not already
         if isinstance(issue_date, datetime):
             issue_date_str = issue_date.strftime("%Y-%m-%d")
@@ -185,6 +185,10 @@ def add_transport_balance(total_transport_weight, request, issue_date, issue_no)
             stock_balance.updated_at = today
 
             stock_balance.save()
+            
+            if active_cumulated_balance:
+                active_cumulated_balance.current_balance -= abs(stock_balance.net_weight)
+                active_cumulated_balance.save()
 
             return {
                 "action": "updated",
@@ -206,6 +210,10 @@ def add_transport_balance(total_transport_weight, request, issue_date, issue_no)
                 updated_by=request.user.username,
                 updated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             )
+            
+            if active_cumulated_balance:
+                active_cumulated_balance.current_balance -= abs(stock_balance.net_weight)
+                active_cumulated_balance.save()
 
             return {
                 "action": "created",
@@ -219,7 +227,7 @@ def add_transport_balance(total_transport_weight, request, issue_date, issue_no)
         raise e
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "finance", "manager"])])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
 def add_beginning_balance(request):
     if request.method == "POST":
         data = json.loads(request.body)
@@ -267,15 +275,16 @@ def get_active_balance_summary(request):
         active_balance = CumulativeBalance.objects.filter(is_active=True, is_deleted=False).first()
         if not active_balance:
             return JsonResponse({
-                "result": "error",
+                "result": "success",
                 "message": "No active balance found.",
                 "content": ""
             }, status=status.HTTP_400_BAD_REQUEST)
 
         start_date = datetime.strptime(active_balance.created_at, "%Y-%m-%d")
-
+        start_date_str = start_date.strftime("%Y-%m-%d")
+        
         stock_records = StockBalance.objects.filter(
-            weight_date__gte=start_date,
+             weight_date__gte=start_date_str,
             is_deleted=False
         ).aggregate(
             total_purchase=Sum('purchase_weight'),
@@ -308,11 +317,21 @@ def get_active_balance_summary(request):
             "message": "An error occurred while fetching the summary."
         }, status=status.HTTP_400_BAD_REQUEST)
 
-@api_view(['GET'])
+@api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def get_stock_balance(request):
     try :
+        data = json.loads(request.body)
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
         stock_balance = StockBalance.objects.all().order_by("-record_time")
+        if start_date:
+            stock_balance = stock_balance.filter(weight_date__gte=start_date)
+        if end_date:
+            stock_balance = stock_balance.filter(weight_date__lte=end_date)
+
+        #stock_balance = StockBalance.objects.all().order_by("-record_time")
         paginated_records = stock_balance_pagination(request, stock_balance)
         return JsonResponse({
             "result": "success",
@@ -335,10 +354,12 @@ def generate_stock_report(start_date: str = "", end_date: str = "", report_type:
     elif not end_date:
         _, end_date = _default_date_range()
 
+    start_dt = parse_date(start_date)
+    end_dt = parse_date(end_date)
+
     qs = StockBalance.objects.filter(
         is_deleted=False,
-        weight_date__gte=start_date,
-        weight_date__lte=end_date,
+        weight_date__range=[start_date, end_date],
     ).order_by('weight_date')
 
     records = []
@@ -411,7 +432,6 @@ def get_stock_report(request):
         logger.error("Error occurred while generating stock report: %s", e)
         return JsonResponse({"result": "error", 'message': "Error occurred while generating report."}, status=400)
 
-
 def generate_stock_card(start_date: str = "", end_date: str = "") -> dict:
     if not start_date and not end_date:
         start_date, end_date = _default_date_range()
@@ -471,7 +491,7 @@ def generate_stock_card(start_date: str = "", end_date: str = "") -> dict:
         "summary": summary
     }
 
-@api_view(['GET'])
+@api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def get_stock_card(request):
     data = json.loads(request.body)

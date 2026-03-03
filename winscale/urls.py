@@ -31,6 +31,7 @@ urlpatterns = [
     path('api/v1/cron/', include('cron.urls')),
     path('api/v1/stock/', include('stock.urls')),
     path('api/v1/material/', include('material.urls')),
+    path('api/v1/service/', include('service.urls')),
     
     path("swagger/", schema_view.with_ui("swagger", cache_timeout=0), name="swagger-ui"),
     path("redoc/", schema_view.with_ui("redoc", cache_timeout=0), name="redoc-ui"),

@@ -1,10 +1,19 @@
 from django.db import models
 from datetime import datetime
 import uuid
+
 # Create your models here.
 class ScrapItemManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().filter(is_deleted=False)
+    def get_active_items(self):
+        return self.get_queryset().filter(status='active')
+    def get_inactive_items(self):
+        return self.get_queryset().filter(status='inactive')
+    def get_deleted_items(self):
+        return self.get_queryset().filter(status='deleted')
+    def get_by_id(self, id):
+        return self.get_queryset().get(id=id)
 class Rate(models.Model) :
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     heavy_rate = models.CharField(blank=True, null=True)

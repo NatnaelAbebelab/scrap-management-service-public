@@ -33,8 +33,7 @@ def _default_date_range() -> tuple[str, str]:
 
 def parse_date(s: str):
     return datetime.strptime(s.strip(), "%Y-%m-%d").date()
-
-
+    
 def convert_date_format(date_str):
     """
     Convert date from DD.MM.YYYY format to YYYY-MM-DD format

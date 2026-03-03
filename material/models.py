@@ -4,6 +4,7 @@ from django.db import models
 from material.enums import RequisitionStatus, IssueStatus
 from user.models import CustomUser
 
+
 # Create your models here.
 class ScrapItemManager(models.Manager):
     def get_queryset(self):

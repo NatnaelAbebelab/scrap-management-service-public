@@ -295,7 +295,7 @@ def edit_material_requisition(request):
                 {"item_code": "IT002", "item_name": "Item 2", "quantity": 2, "unit_price": 20.0}
             ]
         }
-        """
+    """
     try:
         data = request.data
         user = request.user
@@ -495,14 +495,14 @@ def get_raw_material_issue(request, issue_id):
 @permission_classes([IsAuthenticated])
 def add_raw_material_issue(request):
     """
-    Expected request.data format:
-    {
-        "material_requisition": "uuid-of-requisition",
-        "issue_weight": 2000,
-        "issue_date": "2025-11-25",
-        "issue_no": "ISSUE-001",
-        "issue_status": "NEW"
-    }
+        Expected request.data format:
+        {
+            "material_requisition": "uuid-of-requisition",
+            "issue_weight": 2000,
+            "issue_date": "2025-11-25",
+            "issue_no": "ISSUE-001",
+            "issue_status": "NEW"
+        }
     """
     try:
         user = request.user
@@ -531,7 +531,7 @@ def add_raw_material_issue(request):
 
         # Check whether all amounts of the requisition had been issued
         if requisition.total_requisition_quantity == total_issued:
-            return JsonResponse({"result": "error", "message": "All amounts of the requisition had been issued", "content": ""}, status=status.HTTP_400_BAD_REQUEST)
+            return JsonResponse({"result": "success", "message": "All amounts of the requisition had been issued", "content": ""}, status=status.HTTP_200_OK)
 
         # Check if issue weight exceeds remaining
         if issue_weight > remaining:
@@ -573,14 +573,14 @@ def add_raw_material_issue(request):
 @permission_classes([IsAuthenticated])
 def edit_raw_material_issue(request):
     """
-    Expected request.data format:
-    {
-        "_id": "uuid-of-issue",
-        "material_requisition": "uuid-of-requisition",
-        "issue_date": "2025-11-26",
-        "issue_no": "ISSUE-002",
-        "issue_weight: 2000
-    }
+        Expected request.data format:
+        {
+            "_id": "uuid-of-issue",
+            "material_requisition": "uuid-of-requisition",
+            "issue_date": "2025-11-26",
+            "issue_no": "ISSUE-002",
+            "issue_weight: 2000
+        }
     """
     try:
         data = request.data
@@ -606,8 +606,8 @@ def edit_raw_material_issue(request):
             # Check whether all amounts of the requisition had been issued
             if requisition.total_requisition_quantity == total_issued:
                 return JsonResponse(
-                    {"result": "success", "message": "All amounts of the requisition had been issued", "content": ""},
-                    status=status.HTTP_200_OK)
+                    {"result": "error", "message": "All amounts of the requisition had been issued", "content": ""},
+                    status=status.HTTP_400_BAD_REQUEST)
 
             # Check if issue weight exceeds remaining
             if issue_weight and issue_weight > remaining: # new issue_weight

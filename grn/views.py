@@ -13,7 +13,7 @@ from rest_framework import status
 from rate.models import Rate
 from helperFunctions.material_type import *
 from helperFunctions.grade_type import *
-from customer.models import Customer
+from customer.models import PurchaseCustomer
 from helperFunctions.validations import *
 from helperFunctions.pagination import *
 from helperFunctions.status import *
@@ -67,7 +67,7 @@ def filter_grn(role, tin, material_type, plate_no, start_date, end_date, status)
         
         # Filter by TIN (Check if tin exists in Customer model)
         if tin and clean_tin(tin):
-            customer = Customer.objects.filter(TIN=tin).first()
+            customer = PurchaseCustomer.objects.filter(TIN=tin).first()
             if customer:
                 grn_records = grn_records.filter(customer=tin)
         
@@ -111,7 +111,7 @@ def get_daily_performance(role, tin, material_type, start_date, end_date, plate_
         
         # Filter by TIN (Check if tin exists in Customer model)
         if tin and clean_tin(tin):
-            customer = Customer.objects.filter(TIN=tin).first()
+            customer = PurchaseCustomer.objects.filter(TIN=tin).first()
             if customer:
                 grn_records = grn_records.filter(customer=tin)
         
@@ -142,6 +142,7 @@ def get_daily_performance(role, tin, material_type, start_date, end_date, plate_
     except Exception as e:
         logger.error("Error occurred while calculating daily purchase performance: %s", e)
         raise DailyPerformanceException("Error occurred while calculating daily purchase performance", data=GRN.objects.none())
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "weight_man", "purchaser"])])
 def upload_csv_file(request) :
@@ -324,10 +325,10 @@ def upload_csv_file(request) :
                             "transport_weight": 0.0,  # default
                         }
 
-                    customer = Customer.objects.filter(TIN=customer_TIN).first()
+                    customer = PurchaseCustomer.objects.filter(TIN=customer_TIN).first()
                     if not customer :
                         # register customer
-                        c = Customer(
+                        c = PurchaseCustomer(
                             TIN=customer_TIN,
                             remaining_amount=round(float(net_price), 2),
                             created_by=request.user.username,
@@ -361,6 +362,7 @@ def upload_csv_file(request) :
         except Exception as e:
             logger.error("Error occurred while uploading file: %s", e)
             return JsonResponse({"result": "error", "message": "Error occurred while uploading file"}, status=status.HTTP_400_BAD_REQUEST)
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "weight_man", "purchaser", "inspector", "purchase_head", "supervisor", "finance", "manager"])])
 def get_grn(request):
@@ -496,10 +498,10 @@ def approve_grn_supervisor(request) :
             
             if role == "purchaser":
                 # GRN number, GRN image, Scale image is required
-                if not (is_digit(grn_no) and grn_no):
+                if grn_no and not(is_digit(grn_no)):
                     return JsonResponse({"result": "error", "message": "Provide valid GRN No"}, status=status.HTTP_400_BAD_REQUEST)
-                if not (scale_img): #grn_img and approve_img and 
-                    return JsonResponse({"result": "error", "message": "Scale proof image is not provided"}, status=status.HTTP_400_BAD_REQUEST)
+                #if not (scale_img): #grn_img and approve_img and 
+                    #return JsonResponse({"result": "error", "message": "Scale proof image is not provided"}, status=status.HTTP_400_BAD_REQUEST)
                 
                 if GRN.all_objects.filter(grn_no=grn_no).first():
                     return JsonResponse({"result": "error", "message": "GRN No is already used"}, status=status.HTTP_400_BAD_REQUEST)
@@ -515,13 +517,14 @@ def approve_grn_supervisor(request) :
                                 destination.write(chunk)
                         get_grn.grn_img = grn_file_name + "." + grn_img.name.split(".")[-1]
                     
-                    scale_file_name = str(uuid.uuid4())
-                    scale_file_path = os.path.join(settings.MEDIA_ROOT, "scale-img", scale_file_name + "." + scale_img.name.split(".")[-1])
-                    os.makedirs(os.path.dirname(scale_file_path), exist_ok=True)
-                    with open(scale_file_path, 'wb+') as destination:
-                        for chunk in scale_img.chunks():
-                            destination.write(chunk)
-                    get_grn.scale_img = scale_file_name + "." + scale_img.name.split(".")[-1]
+                    if scale_img:
+                        scale_file_name = str(uuid.uuid4())
+                        scale_file_path = os.path.join(settings.MEDIA_ROOT, "scale-img", scale_file_name + "." + scale_img.name.split(".")[-1])
+                        os.makedirs(os.path.dirname(scale_file_path), exist_ok=True)
+                        with open(scale_file_path, 'wb+') as destination:
+                            for chunk in scale_img.chunks():
+                                destination.write(chunk)
+                        get_grn.scale_img = scale_file_name + "." + scale_img.name.split(".")[-1]
                     
                     get_grn.grn_no = grn_no
                     get_grn.status = Status.PREPARED.status_value
@@ -533,18 +536,18 @@ def approve_grn_supervisor(request) :
                 return JsonResponse({"result": "error", "message": f"There is no GRN record under {record_no}"}, status=status.HTTP_400_BAD_REQUEST)
             
             if role == "purchase_head":
-                if not (approve_img): #grn_img and approve_img and 
-                    return JsonResponse({"result": "error", "message": "Approve proof image is not provided"}, status=status.HTTP_400_BAD_REQUEST)
-                
+                #if not (approve_img): #grn_img and approve_img and 
+                    #return JsonResponse({"result": "error", "message": "Approve proof image is not provided"}, status=status.HTTP_400_BAD_REQUEST)
                 if get_grn:
-                    approve_file_name = str(uuid.uuid4())
-                    approve_file_path = os.path.join(settings.MEDIA_ROOT, "approve-img", approve_file_name + "." + approve_img.name.split(".")[-1])
-                    os.makedirs(os.path.dirname(approve_file_path), exist_ok=True)
-                    with open(approve_file_path, 'wb+') as destination:
-                        for chunk in approve_img.chunks():
-                            destination.write(chunk)
-                    get_grn.approve_img = approve_file_name + "." + approve_img.name.split(".")[-1]
-                    
+                    if approve_img:
+                        approve_file_name = str(uuid.uuid4())
+                        approve_file_path = os.path.join(settings.MEDIA_ROOT, "approve-img", approve_file_name + "." + approve_img.name.split(".")[-1])
+                        os.makedirs(os.path.dirname(approve_file_path), exist_ok=True)
+                        with open(approve_file_path, 'wb+') as destination:
+                            for chunk in approve_img.chunks():
+                                destination.write(chunk)
+                        get_grn.approve_img = approve_file_name + "." + approve_img.name.split(".")[-1]
+                        
                     get_grn.status = Status.VERIFIED.status_value
                     get_grn.updated_by = request.user.username
                     get_grn.updated_at = today
@@ -680,7 +683,7 @@ def get_grn_finance(request) :
         grn_records = GRN.objects.all().order_by("-record_time")
         # Filter by TIN (Check if tin exists in Customer model)
         if tin and clean_tin(tin):
-            customer = Customer.objects.filter(TIN=tin).first()
+            customer = PurchaseCustomer.objects.filter(TIN=tin).first()
             if customer:
                 grn_records = grn_records.filter(customer=tin)
         # Filter by material type
@@ -725,7 +728,7 @@ def pay_customer(request):
 
         try:
             tin = clean_tin(tin)
-            customer = get_object_or_404(Customer.objects, TIN=tin)
+            customer = get_object_or_404(PurchaseCustomer.objects, TIN=tin)
             grn = get_object_or_404(GRN.objects, record_no=record_no)
             
             if float(grn.net_price) > float(customer.remaining_amount): 
@@ -810,7 +813,7 @@ def get_daily_purchase_performance(request):
             }
             # Iterate through GRN records
             for grn in daily_performance:
-                customer = Customer.objects.filter(TIN=grn.customer).first()  # Find customer by TIN
+                customer = PurchaseCustomer.objects.filter(TIN=grn.customer).first()  # Find customer by TIN
                 
                 # Build individual entry
                 individual_entry = {
@@ -1042,7 +1045,7 @@ def get_grn_serial_numbers(request):
     try:
         numbers = GRNSerialNumber.objects.all()
         serializer = GRNSerialNumberSerializer(numbers, many=True)
-        return JsonResponse({"result": "error", "message": "GRN Serial Numbers", "content": serializer.data}, status=status.HTTP_200_OK)
+        return JsonResponse({"result": "success", "message": "GRN Serial Numbers", "content": serializer.data}, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error("Error occurred while getting GRN Serial Numbers: %s", e)
         return JsonResponse({"result": "error", "message": "Error occurred while getting GRN Serial Numbers", "content": e}, status=status.HTTP_400_BAD_REQUEST)

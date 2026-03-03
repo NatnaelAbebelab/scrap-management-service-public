@@ -22,7 +22,7 @@ class MyCronJob(CronJobBase):
         logger.error(f"Now is {now}")
         try:
             # 24 hr format 
-            if now.hour == 10 and 0 <= now.minute <= 59:
+            if now.hour == 12  and 0 <= now.minute <= 59:
                 print(f"Cron executed at {now}")
                 logger.error(f"Cron executed at {now}")
                 process_aggregate_daily_factory_scrap_moves()

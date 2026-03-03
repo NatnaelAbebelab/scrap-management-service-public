@@ -6,6 +6,15 @@ import uuid
 class ScrapItemManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().filter(is_deleted=False)
+    def get_active_items(self):
+        return self.get_queryset().filter(status='active')
+    def get_inactive_items(self):
+        return self.get_queryset().filter(status='inactive')
+    def get_deleted_items(self):
+        return self.get_queryset().filter(status='deleted')
+    def get_by_id(self, id):
+        return self.get_queryset().get(id=id)
+
 class GRN(models.Model) :
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     record_no = models.CharField(max_length=255, blank=True, unique=True)
@@ -59,7 +68,6 @@ class GRN(models.Model) :
         self.is_deleted = False
         self.updated_at = datetime.today().strftime('%Y-%m-%d')
         self.save()
-
 
 class GRNSerialNumber(models.Model):
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

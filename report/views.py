@@ -18,7 +18,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from utils.permissions import role_required
 from utils.exceptions import *
 from grn.models import GRN
-from customer.models import Customer
+from customer.models import PurchaseCustomer
 from django.db.models import Q
 from calendar import month_abbr
 import logging, string
@@ -36,7 +36,7 @@ def generate_plain_report(tin, start_date, end_date):
         
         # Filter by TIN (Check if tin exists in Customer model)
         if tin and clean_tin(tin):
-            customer = Customer.objects.filter(TIN=tin).first()
+            customer = PurchaseCustomer.objects.filter(TIN=tin).first()
             if customer:
                 grn_records = grn_records.filter(customer=tin)
         
@@ -67,7 +67,7 @@ def daily_aggregate_report(queryset, by_tin=False, by_material_type=False, by_pl
     plate_no = queryset.values_list("plate_no", flat=True).distinct().first()
     
     if by_tin and queryset.exists():
-        customer = Customer.objects.filter(TIN=tin).first()
+        customer = PurchaseCustomer.objects.filter(TIN=tin).first()
         customer_info = {
             "fname": string.capwords(customer.fname),
             "lname": string.capwords(customer.lname),
@@ -130,7 +130,7 @@ def weekly_aggregate_report(queryset, by_tin=False, by_material_type=False, by_p
     plate_no = queryset.values_list("plate_no", flat=True).distinct().first()
     
     if by_tin and queryset.exists():
-        customer = Customer.objects.filter(TIN=tin).first()
+        customer = PurchaseCustomer.objects.filter(TIN=tin).first()
         customer_info = {
             "fname": string.capwords(customer.fname),
             "lname": string.capwords(customer.lname),
@@ -338,17 +338,17 @@ def aggregate_report(request) :
                 by_tin = True
                 if customer:
                     grn_records = grn_records.filter(customer=tin)
-
+            
             # Filter by material type
             if material_type and is_valid_material(material_type):
                 grn_records = grn_records.filter(material_type__iexact=material_type)
                 by_material_type = True
-
+            
             # Filter by plate no
             if plate_no:
                 by_plate_no = True
                 grn_records = grn_records.filter(plate_no__iexact=plate_no)
-
+                
             grn_records = grn_records.annotate(
                 casted_first_date=ToDate("first_date")
             )
@@ -358,11 +358,11 @@ def aggregate_report(request) :
             if end_date:
                 end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
                 grn_records = grn_records.filter(casted_first_date__lte=end_date)
-
+            
             # Filter by status
             if _status:
                 grn_records = grn_records.filter(status__iexact=_status)
-
+                
             # aggregate periodically
             if period == "daily":
                 daily_report = daily_aggregate_report(grn_records, by_tin, by_material_type, by_plate_no)

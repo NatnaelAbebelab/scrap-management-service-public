@@ -1,13 +1,12 @@
 import uuid
+from datetime import datetime
 
 from django.db import models
 
-
-# Create your models here.
-class Customer(models.Model):
+class PurchaseCustomer(models.Model):
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    fname = models.CharField(blank=True)
-    lname = models.CharField(blank=True)
+    first_name = models.CharField(blank=True)
+    last_name = models.CharField(blank=True)
     phone = models.CharField(blank=True)
     email = models.CharField(blank=True)
     TIN = models.CharField(blank=True)
@@ -21,4 +20,9 @@ class Customer(models.Model):
     record_time = models.DateTimeField(auto_now=True)
     
     def __str__(self):
-        return self.fname
+        return self.first_name
+
+    def delete(self, *args, **kwargs):
+        self.is_deleted = True
+        self.updated_at = datetime.today().strftime('%Y-%m-%d')
+        self.save()

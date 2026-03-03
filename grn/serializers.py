@@ -2,7 +2,7 @@ from rest_framework import serializers
 from django.db.models import Q
 from stock.models import StockBalance
 from .models import GRN, GRNSerialNumber
-from customer.models import Customer
+from customer.models import PurchaseCustomer
 from rate.models import Rate
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
@@ -83,15 +83,15 @@ class GRNCustomerSerializer(serializers.ModelSerializer):
         ]
 
     def get_customer_business_name(self, obj):
-        customer = Customer.objects.filter(TIN=obj.customer.strip()).first()
+        customer = PurchaseCustomer.objects.filter(TIN=obj.customer.strip()).first()
         return customer.business_name if customer else None
 
     def get_customer_fname(self, obj):
-        customer = Customer.objects.filter(TIN=obj.customer.strip()).first()
+        customer = PurchaseCustomer.objects.filter(TIN=obj.customer.strip()).first()
         return customer.fname if customer else None
 
     def get_customer_lname(self, obj):
-        customer = Customer.objects.filter(TIN=obj.customer.strip()).first()
+        customer = PurchaseCustomer.objects.filter(TIN=obj.customer.strip()).first()
         return customer.lname if customer else None
     
     def get_amount(self, obj):

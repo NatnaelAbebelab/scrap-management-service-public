@@ -1,6 +1,6 @@
 from rest_framework.pagination import PageNumberPagination, LimitOffsetPagination
 from collections import defaultdict
-
+from customer.serializers import CustomerSerializer
 from material.serializers import MaterialRequisitionSerializer, RawMaterialIssueSerializer, MeltingPlantsSerializer
 from rate.serializers import *
 from grn.serializers import *
@@ -12,7 +12,7 @@ import uuid
 These functions and classes are dedicated to work on query pagination
 """
 class Pagination(PageNumberPagination):
-    # /api/grn?page=2&page_size=20
+    # /api/grn?page=1&page_size=20
     page_size = 10  # Number of items per page
     page_size_query_param = 'page_size'
     max_page_size = 100
@@ -20,36 +20,43 @@ class PaginationLimitOffset(LimitOffsetPagination):
     #/api/grn?limit=10&offset=10 → Next 10 results (skip first 10)
     default_limit = 10  # Default items per request
     max_limit = 100  # Maximum items a user can request
+
 def grn_pagination_limit_offset(request, queryset):
     paginator = PaginationLimitOffset()
     paginated_queryset = paginator.paginate_queryset(queryset, request)
     serializer = GRNSerializer(paginated_queryset, many=True)
     return paginator.get_paginated_response(serializer.data)
+
 def rate_pagination(request, queryset):
     paginator = Pagination()
     paginated_queryset = paginator.paginate_queryset(queryset, request)
     serializer = RateSerializer(paginated_queryset, many=True)
     return paginator.get_paginated_response(serializer.data)
+
 def grn_pagination(request, queryset):
     paginator = Pagination()
     paginated_queryset = paginator.paginate_queryset(queryset, request)
     serializer = GRNCustomerSerializer(paginated_queryset, many=True)
     return paginator.get_paginated_response(serializer.data)
+
 def scrap_move_pagination(request, queryset):
     paginator = Pagination()
     paginated_queryset = paginator.paginate_queryset(queryset, request)
     serializer = FactoryScrapMoveSerializer(paginated_queryset, many=True)
     return paginator.get_paginated_response(serializer.data)
+
 def agency_pagination(request, queryset):
     paginator = Pagination()
     paginated_queryset = paginator.paginate_queryset(queryset, request)
     serializer = AgencySerializer(paginated_queryset, many=True)
     return paginator.get_paginated_response(serializer.data)
+
 def agreement_pagination(request, queryset):
     paginator = Pagination()
     paginated_queryset = paginator.paginate_queryset(queryset, request)
     serializer = AgreementSerializer(paginated_queryset, many=True)
     return paginator.get_paginated_response(serializer.data)
+
 def daily_scrap_move_pagination(request, queryset):
     paginator = Pagination()
     # paginated_queryset = paginator.paginate_queryset(queryset, request)
@@ -57,6 +64,7 @@ def daily_scrap_move_pagination(request, queryset):
     paginated_queryset = paginator.paginate_queryset(serializer.data, request)
     # return paginator.get_paginated_response(paginated_queryset)
     return paginator.get_paginated_response(serializer.data)
+
 def filter_daily_scrap_move_pagination(request, queryset, start_date, end_date):
     paginator = Pagination()
     # Prepare the result structure
@@ -110,10 +118,11 @@ def filter_daily_scrap_move_pagination(request, queryset, start_date, end_date):
     serializer = DailyScrapMoveAggregateDictSerializer(paginated_queryset, many=True)
     
     return paginator.get_paginated_response(serializer.data)
+
 def user_pagination(request, queryset):
     paginator = Pagination()
     paginated_queryset = paginator.paginate_queryset(queryset, request)
-    serializer = UserSerializer(paginated_queryset, many=True)
+    serializer = UserListSerializer(paginated_queryset, many=True)
     return paginator.get_paginated_response(serializer.data)
 
 def stock_balance_pagination(request, queryset):
@@ -138,4 +147,10 @@ def melting_plants_pagination(request, queryset):
     paginator = Pagination()
     paginated_queryset = paginator.paginate_queryset(queryset, request)
     serializer = MeltingPlantsSerializer(paginated_queryset, many=True)
+    return paginator.get_paginated_response(serializer.data)
+
+def customer_pagination(request, queryset):
+    paginator = Pagination()
+    paginated_queryset = paginator.paginate_queryset(queryset, request)
+    serializer = CustomerSerializer(paginated_queryset, many=True)
     return paginator.get_paginated_response(serializer.data)

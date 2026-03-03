@@ -1,182 +1,208 @@
-from datetime import datetime
-from django.db.models import Q
-from django.http import JsonResponse
+import logging
+
+from django.db import transaction
+from django.db.models import Q, Sum
+from django.http import JsonResponse, Http404
+from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
+
+from helperFunctions.pagination import customer_pagination
+from helperFunctions.validations import is_valid_uuid
 from utils.permissions import role_required
 from grn.models import GRN
-from .models import Customer
-from .serializers import CustomerSerializer
+from .models import PurchaseCustomer
+from .serializers import PurchaseCustomerCreateSerializer, PurchaseCustomerUpdateSerializer, \
+    CustomerPaymentSerializer, GRNSerializer
 
+logger = logging.getLogger(__name__)
 # Create your views here.
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
 def get_customers(request):
     try:
-        customers = Customer.objects.all()
-        serializer = CustomerSerializer(customers, many=True)
+        customers = PurchaseCustomer.objects.all().order_by("-record_time")
+        paginated_customers = customer_pagination(request, customers)
+
         return JsonResponse({
             "result": "success",
-            "data": serializer.data
-        }, status=status.HTTP_200_OK)
+            "data": paginated_customers.data
+        })
     except Exception as e:
+        logger.error("Error occurred while fetching customers: %s", e)
         return JsonResponse({
             "result": "error",
-            "data": e
-        }, status=status.HTTP_400_BAD_REQUEST)
+            "data": str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "purchase_head", "supervisor", "manager"])])
 def add_customer(request):
-    if request.method == "POST":
-        fname = request.POST.get("fname")
-        lname = request.POST.get("lname")
-        phone = request.POST.get("phone")
-        email = request.POST.get("email").lower()
-        tin = request.POST.get("tin")
-        business_name = request.POST.get("business_name").lower()
+    try:
+        serializer = PurchaseCustomerCreateSerializer(
+            data=request.data,
+            context={"request": request}
+        )
 
-        try:
-            if Customer.objects.filter(TIN=tin).exists():
-                return JsonResponse({"result": "error", "message": "Tin already exists"}, status=status.HTTP_400_BAD_REQUEST)
-            if Customer.objects.filter(business_name=business_name).exists():
-                return JsonResponse({"result": "error", "message": "business name already exists"}, status=status.HTTP_400_BAD_REQUEST)
-
-            today = datetime.today().strftime("%Y-%m-%d")
-            customer = Customer(
-                fname=fname,
-                lname=lname,
-                phone=phone,
-                email=email,
-                TIN=tin,
-                business_name=business_name,
-                created_by=request.user.username,
-                created_at=today,
-                updated_by=request.user.username,
-                updated_at=today
+        if serializer.is_valid():
+            serializer.save()
+            return JsonResponse(
+                {
+                    "result": "success", "message": "Customer registered successfully", "data": serializer.data},
+                status=status.HTTP_201_CREATED
             )
-            customer.save()
-            # calculate remaining amount of this customer if the TIN found in GRN record
-            grn = GRN.objects.filter(customer=tin).all()
-            _customer = Customer.objects.get(TIN=tin)
-            total_net_price = 0
-            for grn in grn:
-                total_net_price = float(total_net_price) + float(grn.net_price)
-            if _customer is not None:
-                _customer.remaining_amount = float(total_net_price)
-                _customer.save()
-            return JsonResponse({"result": "success", "message": "Customer is registered successfully"}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return JsonResponse({"result": "error", "message": "Error occurred while adding customer"}, status=status.HTTP_400_BAD_REQUEST)
 
-@api_view(['PATCH'])
+        return JsonResponse(
+            {
+                "result": "error", "errors": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    except Exception as e:
+        return JsonResponse(
+            {"result": "error", "message": "Operation failed", "content": str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+@api_view(['PUT'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "purchase_head", "supervisor", "manager"])])
-def edit_customer(request):
-    if request.method == "PATCH":
-        _id = request.POST.get("_id")
-        fname = request.POST.get("fname")
-        lname = request.POST.get("lname")
-        phone = request.POST.get("phone")
-        email = request.POST.get("email").lower()
-        tin = request.POST.get("tin")
-        business_name = request.POST.get("business_name").lower()
+def edit_customer(request, customer_id):
+    try:
+        customer = get_object_or_404(PurchaseCustomer, _id=customer_id)
 
-        try:
-            if not Customer.objects.filter(_id=_id).exists():
-                return JsonResponse({"result": "error", "message": "Customer not found"}, status=status.HTTP_400_BAD_REQUEST)
-            if Customer.objects.filter(Q(TIN=tin), ~Q(_id=_id)).exists():
-                return JsonResponse({"result": "error", "message": "Tin is already used"}, status=status.HTTP_400_BAD_REQUEST)
-            if Customer.objects.filter(Q(business_name=business_name), ~Q(_id=_id)).exists():
-                return JsonResponse({"result": "error", "message": "Business_name is already used"}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = PurchaseCustomerUpdateSerializer(
+            customer,
+            data=request.data,
+            partial=True,
+            context={"request": request}
+        )
 
-            today = datetime.today().strftime("%Y-%m-%d")
-            customer = Customer.objects.filter(_id=_id).first()
-            if fname != '':
-                customer.fname = fname
-            if lname != '':
-                customer.lname = lname
-            if email != '':
-                customer.email = email
-            if phone != '':
-                customer.phone = phone
-            if tin != '':
-                customer.TIN = tin
-            if business_name != '':
-                customer.business_name = business_name
-            customer.updated_at = today
-            customer.updated_by = request.user.username
-            customer.save()
-            return JsonResponse({"result": "success", "message": "Customer updated successfully"}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return JsonResponse({"result": "error", "message": 'Error occurred while updating customer'}, status=status.HTTP_400_BAD_REQUEST)
+        if serializer.is_valid():
+            serializer.save()
+            return JsonResponse(
+                {"result": "success", "message": "Customer updated successfully", "data": serializer.data},
+                status=status.HTTP_200_OK
+            )
+
+        return JsonResponse(
+            {"result": "error", "errors": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    except Http404:
+        return JsonResponse(
+            {"result": "error", "message": "Customer not found"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return JsonResponse(
+            {"result": "error", "message": "Operation failed"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
-def filter_customer_TIN(request):
-    tin = request.query_params.get("tin", "")
+def filter_customer_tin(request):
+    tin = request.query_params.get("tin")
+
+    if not tin:
+        return JsonResponse(
+            {"result": "error", "message": "TIN not provided"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     try:
-        if not tin: return JsonResponse({"result": "error", "message": "TIN not provided"}, status=status.HTTP_400_BAD_REQUEST)
-        customer = Customer.objects.get(TIN=tin)
-        if customer is None:
-            return JsonResponse({
-                "result": "error",
-                "message": "Customer not found"
-            }, status=status.HTTP_400_BAD_REQUEST)
-        context = {
-            "total_net_weight": 0,
-            "total_net_price": 0,
-            "total_heavy_weight": 0,
-            "total_medium_weight": 0,
-            "total_light_weight": 0,
-            "paid_amount": customer.paid_amount,
-            "remaining_payment": customer.remaining_amount
+        customer = get_object_or_404(PurchaseCustomer.objects, TIN=tin)
+        grns = GRN.objects.filter(customer=customer.TIN)
+        totals = {
+            "total_net_weight": sum(float(grn.net_weight or 0) for grn in grns),
+            "total_net_price": sum(float(grn.net_price or 0) for grn in grns),
+            "total_heavy_weight": sum(float(grn.heavy_grade or 0) for grn in grns),
+            "total_medium_weight": sum(float(grn.medium_grade or 0) for grn in grns),
+            "total_light_weight": sum(float(grn.light_grade or 0) for grn in grns),
         }
-        grn = GRN.objects.filter(customer=customer.TIN).all()
-        for grn in grn:
-            context["total_net_weight"] = context['total_net_weight'] + float(grn.net_weight)
-            context["total_net_price"] = context['total_net_price'] + float(grn.net_price)
-            context["total_heavy_weight"] = context['total_heavy_weight'] + float(grn.heavy_grade)
-            context["total_medium_weight"] = context['total_medium_weight'] + float(grn.medium_grade)
-            context["total_light_weight"] = context['total_light_weight'] + float(grn.light_grade)
-        return JsonResponse({"result": "success", "data": context}, status=status.HTTP_200_OK)
-    except Exception as e:
-        return JsonResponse({"result": "error", "message": "operation failed"}, status=status.HTTP_400_BAD_REQUEST)
+        context = {
+            "grns": GRNSerializer(grns, many=True).data,
+            "total_net_weight": totals["total_net_weight"] or 0,
+            "total_net_price": totals["total_net_price"] or 0,
+            "total_heavy_weight": totals["total_heavy_weight"] or 0,
+            "total_medium_weight": totals["total_medium_weight"] or 0,
+            "total_light_weight": totals["total_light_weight"] or 0,
+            "paid_amount": customer.paid_amount,
+            "remaining_payment": customer.remaining_amount,
+        }
+
+        return JsonResponse(
+            {"result": "success", "data": context},
+            status=status.HTTP_200_OK
+        )
+    except Http404:
+        return JsonResponse(
+            {"result": "error", "message": "Customer not found"},
+            status=status.HTTP_404_NOT_FOUND
+        )
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "finance"])])
+@transaction.atomic
 def pay_customer(request):
-    if request.method == "POST":
-        tin = request.POST.get("tin")
-        record_no = request.POST.get("record_no")
+    serializer = CustomerPaymentSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    tin = serializer.validated_data['tin']
+    record_nos = serializer.validated_data['record_nos']
 
-        try:
-            customer = Customer.objects.get(TIN=tin)
-            grn = GRN.objects.get(record_no=record_no)
-            if customer is None: return JsonResponse({"result": "error", "message": "Customer not found"}, status=status.HTTP_400_BAD_REQUEST)
-            if grn is None: return JsonResponse({"result": "error", "message": "Record not found"}, status=status.HTTP_400_BAD_REQUEST)
-            if float(grn.net_price) > customer.remaining_amount: return JsonResponse(
-                {"result": "error", "message": "Paid amount exceeds available balance"}, status=status.HTTP_400_BAD_REQUEST)
-            # pay the customer
-            customer.paid_amount = customer.paid_amount + float(grn.net_price)
-            customer.remaining_amount = customer.remaining_amount - float(grn.net_price)
+    try:
+        customer = get_object_or_404(PurchaseCustomer, TIN=tin)
+        grns = GRN.objects.filter(record_no__in=record_nos).exclude(status='paid')
+        if not grns.exists():
+            return JsonResponse({"result": "error", "message": "No unpaid records found for the given record numbers"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        total_payment = sum(float(grn.net_price or 0) for grn in grns)
+
+        if total_payment > customer.remaining_amount:
+            return JsonResponse({"result": "error", "message": "Total payment exceeds customer's available balance"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            customer.paid_amount += total_payment
+            customer.remaining_amount -= total_payment
             customer.save()
-            grn.status = "paid"
-            grn.save()
-            return JsonResponse({"result": "success", "message": 'Payment is successful'}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return JsonResponse({"result": "error", "message": "Operation failed"}, status=status.HTTP_400_BAD_REQUEST)
+
+            grns.update(status='paid')
+
+            return JsonResponse({
+                "result": "success",
+                "message": f"Payment of {total_payment} successful for {grns.count()} records."
+            }, status=status.HTTP_200_OK)
+    except Http404:
+        return JsonResponse({"result": "error", "message": "Customer not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error("Error occurred while paying customer: %s", e)
+        return JsonResponse({"result": "error", "message": "Operation failed"}, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
-def delete_customer(request):
-    if request.method == "DELETE":
-        tin = request.POST.get("tin")
-        try:
-            if not Customer.objects.filter(TIN=tin).exists():
-                return JsonResponse({"result": "error", "message": "Customer not found"}, status=status.HTTP_400_BAD_REQUEST)
-            GRN.objects.filter(customer=tin).all().delete()
-            Customer.objects.filter(TIN=tin).delete()
-            return JsonResponse({"result": "success", "message": "Customer deleted successfully"}, status=status.HTTP_200_OK)
-        except Exception as e:
-            return JsonResponse({"result": "error", "message": "operation failed"}, status=status.HTTP_400_BAD_REQUEST)
+@transaction.atomic
+def delete_customer(request, customer_id):
+    if not is_valid_uuid(customer_id):
+        return JsonResponse(
+            {"result": "error", "message": "Invalid customer ID"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    try:
+        customer = get_object_or_404(PurchaseCustomer, _id=customer_id)
+        # Delete customer
+        customer.delete()
+
+        return JsonResponse(
+            {"result": "success", "message": "Customer deleted successfully"},
+            status=status.HTTP_200_OK
+        )
+    except Http404:
+        return JsonResponse(
+            {"result": "error", "message": "Customer not found"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        logger.error("Error occurred while deleting customer: %s", e)
+        return JsonResponse({"result": "error", "message": "Operation failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
