@@ -1,20 +1,20 @@
+import logging
+from datetime import datetime
+
 from django.db import transaction
 from django.http import JsonResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
-from .models import Rate
+
 from helperFunctions.material_type import *
-from helperFunctions.grade_type import *
-from helperFunctions.validations import *
 from helperFunctions.pagination import *
-from helperFunctions.status import *
+from helperFunctions.validations import *
 from utils.permissions import role_required
 from .serializers import RateSerializer
-from datetime import datetime
-import logging
+
 # Create your views here.
 
 logger = logging.getLogger(__name__)
