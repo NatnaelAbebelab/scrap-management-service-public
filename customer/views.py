@@ -1,20 +1,18 @@
 import logging
 
 from django.db import transaction
-from django.db.models import Q, Sum
 from django.http import JsonResponse, Http404
 from django.shortcuts import get_object_or_404
+from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
 
+from grn.models import GRN
 from helperFunctions.pagination import customer_pagination
 from helperFunctions.validations import is_valid_uuid
 from utils.permissions import role_required
-from grn.models import GRN
 from .models import PurchaseCustomer
-from .serializers import PurchaseCustomerCreateSerializer, PurchaseCustomerUpdateSerializer, \
-    CustomerPaymentSerializer, GRNSerializer
+from .serializers import PurchaseCustomerCreateSerializer, PurchaseCustomerUpdateSerializer, CustomerPaymentSerializer, GRNSerializer
 
 logger = logging.getLogger(__name__)
 # Create your views here.
@@ -153,6 +151,7 @@ def pay_customer(request):
     try:
         customer = get_object_or_404(PurchaseCustomer, TIN=tin)
         grns = GRN.objects.filter(record_no__in=record_nos).exclude(status='paid')
+
         if not grns.exists():
             return JsonResponse({"result": "error", "message": "No unpaid records found for the given record numbers"},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -174,6 +173,7 @@ def pay_customer(request):
                 "result": "success",
                 "message": f"Payment of {total_payment} successful for {grns.count()} records."
             }, status=status.HTTP_200_OK)
+
     except Http404:
         return JsonResponse({"result": "error", "message": "Customer not found"}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
