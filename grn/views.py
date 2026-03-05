@@ -1018,10 +1018,10 @@ def edit_waste_deduction(request):
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
 def initialize_grn_serial_number(request, initial_serial_number):
     """
-    Initialize new grn serial number
+    Initialize a new grn serial number
     """
     try:
-        # First get the current active last used serial number
+        # First, get the current active last used serial number
         last_used_serial_num = GRNSerialNumber.objects.filter(status='active').first()
         if last_used_serial_num and int(initial_serial_number) < last_used_serial_num.last_used_number:
             return JsonResponse({"result": "error", "message": "Initial serial number is among used serial numbers"}, status=status.HTTP_400_BAD_REQUEST)
@@ -1031,7 +1031,9 @@ def initialize_grn_serial_number(request, initial_serial_number):
         )
         new_initial_serial_number.save()
         GRNSerialNumber.objects.exclude(_id=new_initial_serial_number._id).update(status='expired')
-        return JsonResponse({"result": "success", "message": "New initial GRN Serial Number is set."}, status=status.HTTP_200_OK)
+
+        return JsonResponse({"result": "success", "message": "New initial GRN Serial Number is set.", "data": GRNSerialNumberSerializer(new_initial_serial_number).data}, status=status.HTTP_200_OK)
+
     except Exception as e:
         logger.error("Error occurred while initializing new GRN Serial Number: %s", e)
         return JsonResponse({"result": "error", "message": "Error occurred while initializing new GRN Serial Number", "content": e}, status=status.HTTP_400_BAD_REQUEST)
@@ -1046,6 +1048,7 @@ def get_grn_serial_numbers(request):
         numbers = GRNSerialNumber.objects.all()
         serializer = GRNSerialNumberSerializer(numbers, many=True)
         return JsonResponse({"result": "success", "message": "GRN Serial Numbers", "content": serializer.data}, status=status.HTTP_200_OK)
+
     except Exception as e:
         logger.error("Error occurred while getting GRN Serial Numbers: %s", e)
         return JsonResponse({"result": "error", "message": "Error occurred while getting GRN Serial Numbers", "content": e}, status=status.HTTP_400_BAD_REQUEST)
@@ -1074,6 +1077,7 @@ def get_scrap_receipt(request, record_no):
         grn_record = get_object_or_404(GRN.objects, record_no=record_no)
         serializer = GRNCustomerSerializer(grn_record)
         return JsonResponse({"result": "success", "message": record_no + " receipt is generated successfully.", "content": serializer.data}, status=status.HTTP_200_OK)
+
     except Http404:
         logger.error("No record found under given record no: %s", record_no)
         return JsonResponse({"result": "error", "message": "No record found under given record no."}, status=status.HTTP_404_NOT_FOUND)
