@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 
 from django.db import transaction
 from django.http import JsonResponse, Http404
