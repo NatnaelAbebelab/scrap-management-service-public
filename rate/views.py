@@ -32,6 +32,7 @@ def get_active_rate(request):
             "message": "Active rate is fetched successfully",
             "data": serializer.data
         }, status=status.HTTP_200_OK)
+
     except Exception as e:
         logger.error("Error occurred while fetching active rate: %s ", e)
         return JsonResponse({
@@ -98,69 +99,85 @@ def add_or_update_rate(request):
     serializer.is_valid(raise_exception=True)
     data = serializer.validated_data
 
-    material_type = data['material_type'].strip().lower()
-    heavy_rate = data.get('heavy_rate')
-    medium_rate = data.get('medium_rate')
-    light_rate = data.get('light_rate')
-    fixed_rate = data.get('fixed_rate')
+    material_type = data["material_type"].strip().lower()
+    heavy_rate = data.get("heavy_rate")
+    medium_rate = data.get("medium_rate")
+    light_rate = data.get("light_rate")
+    fixed_rate = data.get("fixed_rate")
 
-    # Validate material type
-    if not material_type:
-        return JsonResponse({"result": "error", "message": "Material type not specified"}, status=status.HTTP_400_BAD_REQUEST)
+    username = request.user.username
+
     if not is_valid_material(material_type):
-        return JsonResponse({"result": "error", "message": "Selected material type is not available"}, status=status.HTTP_400_BAD_REQUEST)
+        return JsonResponse(
+            {"result": "error", "message": "Selected material type is not available"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     # Validate rates
     if material_type == MaterialType.SCRAP.value:
         fixed_rate = None
-        for rate, label in zip([heavy_rate, medium_rate, light_rate], ["heavy", "medium", "light"]):
-            if not is_valid_number(rate):
-                return JsonResponse({"result": "error", "message": f"{label} rate is invalid"}, status=status.HTTP_400_BAD_REQUEST)
+        if not all(is_valid_number(r) for r in [heavy_rate, medium_rate, light_rate]):
+            return JsonResponse(
+                {"result": "error", "message": "Invalid scrap rates"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
     else:
         heavy_rate = medium_rate = light_rate = None
-        if not (fixed_rate and is_valid_number(fixed_rate)):
-            return JsonResponse({"result": "error", "message": "Fixed rate is invalid"}, status=status.HTTP_400_BAD_REQUEST)
+        if not is_valid_number(fixed_rate):
+            return JsonResponse(
+                {"result": "error", "message": "Fixed rate is invalid"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
     try:
-        # Update today's rate if exists, else create
-        today_rate_qs = Rate.objects.filter(Q(material_type__iexact=material_type) & Q(created_at=today))
-        if today_rate_qs.exists():
-            today_rate_qs.update(
-                heavy_rate=heavy_rate,
-                medium_rate=medium_rate,
-                light_rate=light_rate,
-                fixed_rate=fixed_rate,
-                status="active",
-                updated_by=request.user.username,
-                updated_at=today,
-                record_time=timezone.now()
-            )
-        else:
-            Rate.objects.create(
-                material_type=material_type,
-                heavy_rate=heavy_rate,
-                medium_rate=medium_rate,
-                light_rate=light_rate,
-                fixed_rate=fixed_rate,
-                status="active",
-                created_by=request.user.username,
-                created_at=today,
-                updated_by=request.user.username,
-                updated_at=today
-            )
-
-        # Expire old rates in a single query
-        Rate.objects.filter(material_type__iexact=material_type).exclude(created_at=today).update(
-            status="expired",
-            expired_date=today,
-            record_time=timezone.now()
+        rate, created = Rate.objects.get_or_create(
+            material_type__iexact=material_type,
+            created_at=today,
+            defaults={
+                "material_type": material_type,
+                "heavy_rate": heavy_rate,
+                "medium_rate": medium_rate,
+                "light_rate": light_rate,
+                "fixed_rate": fixed_rate,
+                "status": "active",
+                "created_by": username,
+                "updated_by": username,
+                "updated_at": today,
+            },
         )
 
-        return JsonResponse({"result": "success", "message": "Material type rate added successfully"}, status=status.HTTP_200_OK)
+        if not created:
+            rate.heavy_rate = heavy_rate
+            rate.medium_rate = medium_rate
+            rate.light_rate = light_rate
+            rate.fixed_rate = fixed_rate
+            rate.status = "active"
+            rate.updated_by = username
+            rate.updated_at = today
+            rate.record_time = timezone.now()
+            rate.save()
+
+        Rate.objects.filter(material_type__iexact=material_type).exclude(_id=rate._id).update(
+            status="expired",
+            expired_date=today,
+            record_time=timezone.now(),
+        )
+
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Material rate saved successfully",
+                "data": RateSerializer(rate).data,
+            },
+            status=status.HTTP_200_OK,
+        )
 
     except Exception as e:
-        logger.error("Error occurred while adding rate: %s", e)
-        return JsonResponse({"result": "error", "message": "Error occurred while adding rate"}, status=status.HTTP_400_BAD_REQUEST)
+        logger.error("Error adding rate: %s", e)
+        return JsonResponse(
+            {"result": "error", "message": "Error occurred while adding rate"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "manager"])])
