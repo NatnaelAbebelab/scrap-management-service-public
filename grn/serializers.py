@@ -10,6 +10,15 @@ class GRNSerializer(serializers.ModelSerializer):
     class Meta:
         model = GRN
         fields = '__all__'  # Include all fields
+
+class GRNFilterSerializer(serializers.Serializer):
+    tin = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    material_type = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    status = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    plate_no = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    start_date = serializers.DateField(required=False, allow_null=True)
+    end_date = serializers.DateField(required=False, allow_null=True)
+
 class GETGRNSSerializer(serializers.ModelSerializer) :
     used_rate = serializers.SerializerMethodField()
     class Meta:
@@ -69,16 +78,16 @@ class PlainGRNSerializer(serializers.ModelSerializer) :
 
 class GRNCustomerSerializer(serializers.ModelSerializer):
     customer_business_name = serializers.SerializerMethodField()
-    customer_fname = serializers.SerializerMethodField()
-    customer_lname = serializers.SerializerMethodField()
+    customer_first_name = serializers.SerializerMethodField()
+    customer_last_name = serializers.SerializerMethodField()
     amount = serializers.SerializerMethodField()
 
     class Meta:
         model = GRN
         fields = [f.name for f in GRN._meta.fields] + [
             'customer_business_name',
-            'customer_fname',
-            'customer_lname',
+            'customer_first_name',
+            'customer_last_name',
             'amount'
         ]
 
@@ -86,13 +95,13 @@ class GRNCustomerSerializer(serializers.ModelSerializer):
         customer = PurchaseCustomer.objects.filter(TIN=obj.customer.strip()).first()
         return customer.business_name if customer else None
 
-    def get_customer_fname(self, obj):
+    def get_customer_first_name(self, obj):
         customer = PurchaseCustomer.objects.filter(TIN=obj.customer.strip()).first()
-        return customer.fname if customer else None
+        return customer.first_name if customer else None
 
-    def get_customer_lname(self, obj):
+    def get_customer_last_name(self, obj):
         customer = PurchaseCustomer.objects.filter(TIN=obj.customer.strip()).first()
-        return customer.lname if customer else None
+        return customer.last_name if customer else None
     
     def get_amount(self, obj):
         net_price = float(obj.net_price)

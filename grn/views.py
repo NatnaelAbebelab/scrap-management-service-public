@@ -28,12 +28,13 @@ from decimal import Decimal, ROUND_HALF_UP
 import pandas as pd
 import re, uuid, os, logging
 
-from .service import increment_grn_serial_number
+from .service import increment_grn_serial_number, filter_grn_service
 
 # Create your views here.
 
 logger = logging.getLogger(__name__)
 today = datetime.today().strftime('%Y-%m-%d')
+
 def extract_grade(content) :
     results = {}
     if "&" in content:
@@ -145,264 +146,253 @@ def get_daily_performance(role, tin, material_type, start_date, end_date, plate_
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "weight_man", "purchaser"])])
-def upload_csv_file(request) :
-    if request.method == "POST":
-        csv_file = request.FILES.get("csv_file")
-        date = request.POST.get("date", today) # YYYY-MM-DD
-        skipped_records = {
-            "invalid_records_no" : [],
-            "invalid_firm": [],
-            "invalid_material_type": []
-        }
-        if not date:
-            return JsonResponse({"result": "error", "message": "Provide date to upload the file"}, status=status.HTTP_400_BAD_REQUEST)
-        if not is_valid_date(date):
-            return JsonResponse({"result": "error", "message": "Provide valid date"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            # Ensure the file is an Excel file
-            if not csv_file or not csv_file.name.endswith(".xlsx"):
-                return JsonResponse({"result": "error", "message": "Invalid file format. Please upload an Excel file"}, status=status.HTTP_400_BAD_REQUEST)
-        
-            df = pd.read_excel(csv_file, engine="openpyxl")
-            
-            # Required columns
-            columns_to_check = ["RECORD NO", "MATERIAL", "FIRM", "NET", "DATE1"]
-            df.dropna(subset=columns_to_check, inplace=True)
-            data_list = df.to_dict(orient="records")
-            
-            # stock variables
-            total_purchase_weight = {}
-            
-            # Process each record
-            for record in data_list :
+def upload_csv_file(request):
+    csv_file = request.FILES.get("csv_file")
+    rate_date = request.POST.get("date", today)  # YYYY-MM-DD
+
+    skipped_records = {"invalid_records_no": [], "invalid_firm": [], "invalid_material_type": []}
+
+    if not rate_date or not is_valid_date(rate_date):
+        return JsonResponse({"result": "error", "message": "Provide valid date"}, status=400)
+
+    if not csv_file or not csv_file.name.endswith(".xlsx"):
+        return JsonResponse({"result": "error", "message": "Invalid file format"}, status=400)
+
+    try:
+        df = pd.read_excel(csv_file, engine="openpyxl")
+        required_columns = ["RECORD NO", "MATERIAL", "FIRM", "NET", "DATE1"]
+        df.dropna(subset=required_columns, inplace=True)
+        records = df.to_dict(orient="records")
+
+        # -------------------------
+        # Preload Rates (cache)
+        # -------------------------
+        rate_cache = {}
+        for r in Rate.objects.filter(is_deleted=False):
+            mat_type = r.material_type.lower()
+            if mat_type == "scrap":
+                rate_cache[mat_type] = {
+                    "H": float(r.heavy_rate or 0),
+                    "M": float(r.medium_rate or 0),
+                    "L": float(r.light_rate or 0),
+                }
+            else:
+                rate_cache[mat_type] = float(r.fixed_rate or 0)
+
+        # -------------------------
+        # Preload Customers
+        # -------------------------
+        all_tins = {clean_tin(str(r.get("FIRM", "")).strip()) for r in records}
+        customer_cache = {c.TIN: c for c in PurchaseCustomer.objects.filter(TIN__in=all_tins)}
+
+        # -------------------------
+        # Prepare Bulk Inserts
+        # -------------------------
+        grn_bulk = []
+        new_customers_bulk = []
+        total_purchase_weight = {}
+
+        for record in records:
+            try:
+                record_no = str(record.get("RECORD NO", "")).strip()
+                if not record_no:
+                    skipped_records["invalid_records_no"].append(record_no)
+                    continue
+
+                firm = str(record.get("FIRM", "")).strip()
+                if not firm or not is_valid_number(firm):
+                    skipped_records["invalid_firm"].append(record_no)
+                    continue
+
+                material_raw = str(record.get("MATERIAL", "")).strip()
+                net_weight = float(record.get("NET", 0))
+                if net_weight <= 0:
+                    skipped_records["invalid_records_no"].append(record_no)
+                    continue
+
+                # -------------------------
+                # Initialize grade and rate
+                # -------------------------
+                grade = {"H": 0.0, "M": 0.0, "L": 0.0}
+                used_rate = {"H": 0.0, "M": 0.0, "L": 0.0, "F": 0.0}
                 net_price = 0
-                if not str(record["RECORD NO"]).strip():
-                    skipped_records["invalid_records_no"].append(record["RECORD NO"])
-                    continue
-                if not str(record["FIRM"]).strip() or not is_valid_number(str(record["FIRM"]).strip()):
-                    logger.error(f"Checked at {now}, not time yet")
-                    skipped_records["invalid_firm"].append(record["RECORD NO"])
-                    continue
-                if not str(record["MATERIAL"]).strip() or not is_valid_material(re.sub(r"\{.*?\}", "", str(record["MATERIAL"])).strip().lower()):
-                    skipped_records["invalid_material_type"].append(record["RECORD NO"])
-                    continue
-                if not str(record["NET"]) or not is_valid_number(str(record["NET"])):
-                    skipped_records["invalid_records_no"].append(record["RECORD NO"])
-                    continue
-                if not str(record["DATE1"]):
-                    skipped_records["invalid_records_no"].append(record["RECORD NO"])
-                    continue
-                # Define grade for SCRAP material type
-                grade = {
-                    "H": 0,
-                    "M": 0,
-                    "L": 0                 
-                }
-                scrap_rate = {
-                    "H" : 0,
-                    "M" : 0,
-                    "L" : 0
-                }
-                # check the rate lies on the given date
-                rate_date = datetime.strptime(date, "%Y-%m-%d").date()
-                scrap_expired_rate = Rate.objects.annotate(
-                    casted_created_at=ToFormalDate("created_at"),
-                    casted_expired_date=ToFormalDate("expired_date")
-                ).filter(
-                    Q(material_type="scrap") & 
-                    Q(status="expired") & 
-                    Q(casted_created_at__lte=rate_date) & 
-                    Q(casted_expired_date__gte=rate_date)
-                ).first()
-                if scrap_expired_rate:
-                    scrap_rate = {
-                        "H" : scrap_expired_rate.heavy_rate,
-                        "M" : scrap_expired_rate.medium_rate,
-                        "L" : scrap_expired_rate.light_rate
-                    }
-                else:
-                    active_scrap_rate = Rate.objects.filter(Q(material_type="scrap") & Q(status="active")).first()
-                    if active_scrap_rate:
-                        scrap_rate = {
-                            "H" : active_scrap_rate.heavy_rate,
-                            "M" : active_scrap_rate.medium_rate,
-                            "L" : active_scrap_rate.light_rate
-                        }
-                used_rate = {
-                    "H": 0,
-                    "M": 0,
-                    "L": 0,
-                    "F": 0
-                }
-                match = re.search(r'SCRAP \{(.*?)\}', str(record["MATERIAL"]))
-                material = ""
-                if match :
-                    content = match.group(1)
-                    grade_result = extract_grade(content)
-                    if "grade" in grade_result :
-                        g = grade_result["grade"]
-                        grade[g] = round(float(record["NET"]), 2)
-                        # calculate net price
-                        net_price = grade[g] * float(scrap_rate[g])
-                        used_rate[g] = round(float(scrap_rate[g]), 2)
-                    else :
-                        for k in grade_result :
-                            net_weight = round(float(record["NET"]), 2)
-                            grade[k] = (float(grade_result[k]) /  100) * float(net_weight)
-                            # calculate net price
-                            net_price = net_price + (grade[k] * float(scrap_rate[k]))
-                            used_rate[k] = round(float(scrap_rate[k]), 2)
-                    material = "scrap"
-                else :
-                    if is_valid_material(str(record["MATERIAL"]).lower()) and str(record["MATERIAL"]).lower() != "scrap":
-                        fixed_expired_rate = Rate.objects.annotate(
-                            casted_created_at=ToFormalDate("created_at"),
-                            casted_expired_date=ToFormalDate("expired_date")
-                        ).filter(
-                            Q(material_type=str(record["MATERIAL"]).lower()) & 
-                            Q(status="expired") & 
-                            Q(casted_created_at__lte=rate_date) & 
-                            Q(casted_expired_date__gte=rate_date)
-                        ).first()
-                        if fixed_expired_rate:
-                            fixed_rate = fixed_expired_rate
-                        else:
-                            fixed_rate = Rate.objects.filter(Q(material_type=str(record["MATERIAL"]).lower()), Q(status="active")).first()
-                        
-                        if fixed_rate:
-                            net_weight = round(float(record["NET"]), 2)
-                            net_price = round(net_weight * float(fixed_rate.fixed_rate), 2)
-                            used_rate["F"] = round(float(fixed_rate.fixed_rate), 2)
-                        material = str(record["MATERIAL"]).lower()
-                    else:
-                        skipped_records["invalid_material_type"].append(record["RECORD NO"])
+                material_type = None
+
+                # -------------------------
+                # SCRAP
+                # -------------------------
+                scrap_match = re.search(r'SCRAP \{(.*?)}', material_raw.upper())
+                if scrap_match:
+                    material_type = "scrap"
+                    scrap_rates = rate_cache.get("scrap")
+                    if not scrap_rates:
+                        skipped_records["invalid_material_type"].append(record_no)
                         continue
-                try :
-                    customer_TIN = clean_tin(str(record["FIRM"]).strip())
-                    serial_number = increment_grn_serial_number()
-                    grn = GRN(
-                        record_no= record["RECORD NO"],
-                        plate_no=record["PLATE NO"],
-                        first_weight=record["1ST WEIGHING"],
-                        first_date=record["DATE1"],
-                        first_time=record["TIME1"],
-                        second_weight=record["2ND WEIGHING"],
-                        second_date=record["DATE2"],
-                        second_time=record["TIME2"],
-                        net_weight=record["NET"],
-                        customer=customer_TIN,
-                        type=record["MATERIAL"],
-                        material_type=MaterialType[material.strip().upper()].value,
+
+                    grade_result = extract_grade(scrap_match.group(1))
+                    if not grade_result:
+                        skipped_records["invalid_material_type"].append(record_no)
+                        continue
+
+                    if "grade" in grade_result:
+                        g = grade_result["grade"].upper()
+                        grade[g] = net_weight
+                        used_rate[g] = scrap_rates[g]
+                        net_price = grade[g] * scrap_rates[g]
+                    else:
+                        for k, pct in grade_result.items():
+                            k = k.upper()
+                            grade[k] = (float(pct) / 100) * net_weight
+                            used_rate[k] = scrap_rates[k]
+                            net_price += grade[k] * scrap_rates[k]
+
+                # -------------------------
+                # NON-SCRAP
+                # -------------------------
+                else:
+                    material_type = material_raw.lower()
+                    if not is_valid_material(material_type) or material_type == "scrap":
+                        skipped_records["invalid_material_type"].append(record_no)
+                        continue
+
+                    fixed_rate = rate_cache.get(material_type)
+                    if not fixed_rate:
+                        skipped_records["invalid_material_type"].append(record_no)
+                        continue
+
+                    used_rate["F"] = fixed_rate
+                    net_price = net_weight * fixed_rate
+
+                # -------------------------
+                # GRN Object
+                # -------------------------
+                customer_tin = clean_tin(firm)
+                serial_number = increment_grn_serial_number()
+
+                grn_bulk.append(
+                    GRN(
+                        record_no=record_no,
+                        plate_no=record.get("PLATE NO"),
+                        first_weight=record.get("1ST WEIGHING"),
+                        first_date=record.get("DATE1"),
+                        second_weight=record.get("2ND WEIGHING"),
+                        net_weight=net_weight,
+                        customer=customer_tin,
+                        material_type=MaterialType[material_type.upper()].value,
                         heavy_grade=grade["H"],
                         medium_grade=grade["M"],
                         light_grade=grade["L"],
                         heavy_rate=used_rate["H"],
                         medium_rate=used_rate["M"],
                         light_rate=used_rate["L"],
-                        fixed_rate = used_rate["F"],
-                        driver_name=record["Driver name "],
+                        fixed_rate=used_rate["F"],
                         serial_no=serial_number,
-                        net_price=net_price,
-                        item_code="item_code",
+                        net_price=round(net_price, 2),
                         status="new",
-                        grn_img="",
-                        created_at=today,
                         created_by=request.user.username,
-                        updated_at=today,
+                        updated_by=request.user.username,
+                    )
+                )
+
+                # -------------------------
+                # Stock Map
+                # -------------------------
+                date_key = record.get("DATE1")
+                total_purchase_weight.setdefault(date_key, {"purchase_weight": 0.0, "transport_weight": 0.0})
+                total_purchase_weight[date_key]["purchase_weight"] += net_weight
+
+                # -------------------------
+                # Customer Update
+                # -------------------------
+                customer = customer_cache.get(customer_tin)
+                if customer:
+                    customer.remaining_amount += round(net_price, 2)
+                else:
+                    new_cust = PurchaseCustomer(
+                        TIN=customer_tin,
+                        remaining_amount=round(net_price, 2),
+                        created_by=request.user.username,
                         updated_by=request.user.username
                     )
-                    grn.save()
-                    
-                    # --- Update Hash Map for Stock Balance ---
-                    date_key = grn.first_date
+                    customer_cache[customer_tin] = new_cust
+                    new_customers_bulk.append(new_cust)
 
-                    # If the date exists, just add net_weight, otherwise initialize
-                    if date_key in total_purchase_weight:
-                        total_purchase_weight[date_key]["purchase_weight"] += float(grn.net_weight)
-                    else:
-                        total_purchase_weight[date_key] = {
-                            "purchase_weight": float(grn.net_weight),
-                            "transport_weight": 0.0,  # default
-                        }
+            except Exception as e:
+                logger.error("Error processing record %s: %s", record.get("RECORD NO"), e)
+                skipped_records["invalid_records_no"].append(record.get("RECORD NO"))
+                continue
 
-                    customer = PurchaseCustomer.objects.filter(TIN=customer_TIN).first()
-                    if not customer :
-                        # register customer
-                        c = PurchaseCustomer(
-                            TIN=customer_TIN,
-                            remaining_amount=round(float(net_price), 2),
-                            created_by=request.user.username,
-                            created_at=today,
-                            updated_by=request.user.username,
-                            updated_at=today,
-                        )
-                        c.save()
-                    else :
-                        customer.remaining_amount = customer.remaining_amount + round(float(net_price), 2)
-                        customer.save()
-                except IntegrityError :
-                    skipped_records["invalid_records_no"].append(record["RECORD NO"])
-                    continue
-                except ValueError as e:
-                    logger.error(f"Checked at {e}, not time yet")
-                    skipped_records["invalid_firm"].append(record["RECORD NO"])
-                    continue
-            
-            # pass to stock function to add purchase weights
-            stock_balance = add_purchase_stock(total_purchase_weight, request)
-            
-            # record action log
-            return JsonResponse({
-                "result" : "success",
-                "message": "File uploaded successfully",
-                "skipped_records" : skipped_records,
-                "total_records" : GRN.objects.count(),
-                "stock_balance" : stock_balance,
-            }, status=status.HTTP_200_OK)
-        except Exception as e:
-            logger.error("Error occurred while uploading file: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while uploading file"}, status=status.HTTP_400_BAD_REQUEST)
+        # -------------------------
+        # Bulk Insert
+        # -------------------------
+        GRN.objects.bulk_create(grn_bulk, batch_size=500)
+        if new_customers_bulk:
+            PurchaseCustomer.objects.bulk_create(new_customers_bulk, batch_size=200)
+        if customer_cache:
+            PurchaseCustomer.objects.bulk_update(customer_cache.values(), ["remaining_amount"])
+
+        stock_balance = add_purchase_stock(total_purchase_weight, request)
+
+        return JsonResponse({
+            "result": "success",
+            "message": "File uploaded successfully",
+            "skipped_records": skipped_records,
+            "total_inserted": len(grn_bulk),
+            "stock_balance": stock_balance,
+        }, status=200)
+
+    except Exception as e:
+        logger.error("Error uploading CSV: %s", e)
+        return JsonResponse({"result": "error", "message": "Error uploading file"}, status=400)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "weight_man", "purchaser", "inspector", "purchase_head", "supervisor", "finance", "manager"])])
 def get_grn(request):
-    try :
-        tin = request.GET.get("tin")
-        material_type = request.GET.get("materialType")
-        _status = request.GET.get("status")
-        plate_no = request.GET.get("plateNumber")
-        start_date = request.GET.get("startDate")
-        end_date = request.GET.get("endDate")
-        # Get record stat data Total Records, Approved Records, Paid Records and Other records filter_grn
-        grn = GRN.objects.all()
-        total_records_count = grn.count()
-        approved_records_count = grn.filter(status="approved").count()
-        paid_records_count = grn.filter(status="paid").count()
-        other_records_count = grn.filter(~Q(status="approved") & ~Q(status="paid")).count()
-        
+    try:
+        serializer = GRNFilterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        filters = serializer.validated_data
+
         role = get_user_role(request.user)
-        grn = filter_grn(role, tin, material_type, plate_no, start_date, end_date, _status)
-        # grn = grn.filter(status__in=allowed_status).order_by("-record_time") if allowed_status else GRN.objects.none()
-        paginated_grn = grn_pagination(request, grn)
+
+        grn_all = GRN.objects.all()
+        total_records_count = grn_all.count()
+        approved_records_count = grn_all.filter(status="approved").count()
+        paid_records_count = grn_all.filter(status="paid").count()
+        other_records_count = grn_all.exclude(status__in=["approved", "paid"]).count()
+
+        # --- Filter GRN using service ---
+        grn_qs = filter_grn_service(
+            role=role,
+            tin=filters.get("tin"),
+            material_type=filters.get("material_type"),
+            plate_no=filters.get("plate_no"),
+            start_date=filters.get("start_date"),
+            end_date=filters.get("end_date"),
+            status=filters.get("status")
+        )
+
+        # --- Paginate results ---
+        paginated_grn = grn_pagination(request, grn_qs)
+
         material_types = MaterialType.get_material_types()
-        # get known status
         status_list = Status.get_status_by_role_object(role)
+
         return JsonResponse({
             "result": "success",
             "data": paginated_grn.data,
             "totalRecordsCount": total_records_count,
             "approvedRecordsCount": approved_records_count,
-            "paidRecordsCount":paid_records_count,
+            "paidRecordsCount": paid_records_count,
             "otherRecordsCount": other_records_count,
             "material_types": material_types,
             "status_list": status_list
-        }, status=status.HTTP_200_OK)
+        })
+
     except Exception as e:
-        logger.error("Error occurred while fetching grn: %s", e)
-        return JsonResponse({
-            "result": "error",
-            "message": "Error occurred while fetching grn"
-        }, status=status.HTTP_400_BAD_REQUEST)
+        logger.error("Error fetching GRN: %s", e)
+        return JsonResponse({"result": "error", "message": "Error fetching GRN"}, status=400)
+
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector", "purchase_head", "supervisor", "finance", "manager"])])
 def change_grn_status_bulk(request):
