@@ -188,6 +188,7 @@ def delete_rate(request, rate_id):
         get_rate = get_object_or_404(Rate.objects.get_active_items(), _id=rate_id)
         get_rate.delete()
         return JsonResponse({"result": "success", "message": "Rate deleted successfully"}, status=status.HTTP_200_OK)
+
     except Http404:
         return JsonResponse({"result": "error", "message": "Rate not found"}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
