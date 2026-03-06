@@ -20,7 +20,7 @@ User = get_user_model()
 ROLE_CHOICES = ["super_admin", "weight_man", "purchaser", "inspector", "purchase_head", "supervisor", "factory_manager", "finance", "manager"]
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "weight_man"])])
+@permission_classes([IsAuthenticated, role_required(["super_admin"])])
 def add_user(request):
     """
     {fname: "", lname: "", email: "", phone: "", role: "", signature: "", password: ""}
