@@ -28,7 +28,8 @@ from decimal import Decimal, ROUND_HALF_UP
 import pandas as pd
 import re, uuid, os, logging
 
-from .service import increment_grn_serial_number, filter_grn_service
+from .service import increment_grn_serial_number, filter_grn_service, change_grn_status_service, \
+    rollback_grn_status_service
 
 # Create your views here.
 
@@ -376,7 +377,7 @@ def get_grn(request):
         paginated_grn = grn_pagination(request, grn_qs)
 
         material_types = MaterialType.get_material_types()
-        status_list = Status.get_status_by_role_object(role)
+        status_list = Status.get_all_statuses()
 
         return JsonResponse({
             "result": "success",
@@ -395,257 +396,112 @@ def get_grn(request):
 
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector", "purchase_head", "supervisor", "finance", "manager"])])
-def change_grn_status_bulk(request):
+def change_grn_status(request):
     """
-    Based on the role of logged user change the status of grn to expected ones.
-    Roles are ===> Purchaser, Inspector, Purchase head, Supervisor
+    Unified GRN status change API:
+    - Bulk or single record
+    - Role-based status transitions
+    - Role-based required file fields
+    - File upload handled by service
     """
-    if request.method == "PATCH":
-        record_nos = request.POST.getlist("record_nos")
-        target_status = request.POST.get("target_status").strip().lower()
-        
-        if not record_nos:
-            return JsonResponse({"result": "error", "message": "Provide record numbers of records to apply status change"}, status=status.HTTP_400_BAD_REQUEST)
-        valid_record_no = [n for n in record_nos if is_digit(n)]
+
+    serializer = ChangeGRNStatusSerializer(
+        data=request.data,
+        context={"request": request}
+    )
+    if not serializer.is_valid():
+        return JsonResponse({"result": "error", "message": serializer.errors},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    try:
         role = get_user_role(request.user)
-        allowed_status = Status.get_status_by_role(role)
-        # filter grn by record no
-        try:
-            if target_status in allowed_status and target_status not in ["new", "declined", "pending"]:
-                change_status = Status.get_previous_status(Status.get_status(target_status).status_value)
-                skipped_records = GRN.objects.filter(Q(record_no__in=valid_record_no) & ~Q(status=target_status)).exclude(Q(status=change_status)).values("record_no")
-                GRN.objects.filter(Q(record_no__in=valid_record_no) & Q(status=change_status)).update(
-                    status=Status.get_status(target_status).status_value, 
-                    updated_by=request.user.username, 
-                    updated_at=today,
-                    record_time=timezone.now())
-                return JsonResponse({"result": "success", "message": f"Bulk record's status changed successfully", "skipped_records": list(skipped_records)}, status=status.HTTP_200_OK)
-            return JsonResponse({"result": "error", "message": "Given status is not allowed within your role"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            logger.error("Error occurred while changing status: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while changing status"}, status=status.HTTP_400_BAD_REQUEST)
-@api_view(['PATCH'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector", "purchase_head", "supervisor", "finance", "manager"])])
-def change_grn_status_individual(request):
-    """
-    Change individual GRN record's status and Here also consider Role
-    """
-    if request.method == "PATCH":
-        record_no = request.POST.get("record_no").strip()
-        target_status = request.POST.get("target_status").strip().lower()
-        
-        role = get_user_role(request.user)
-        if not record_no:
-            return JsonResponse({"result": "error", "message": "Provide record no to change status"}, status=status.HTTP_400_BAD_REQUEST)
-        if not is_digit(record_no):
-            return JsonResponse({"result": "error", "message": "Record number must be digits only"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            get_grn = GRN.objects.filter(record_no=record_no).first()
-            if get_grn:
-                if role == "supervisor":
-                    get_grn.status = Status.get_status(target_status).status_value 
-                    get_grn.updated_by = request.user.username
-                    get_grn.updated_at = today
-                    get_grn.save()
-                    return JsonResponse({"result": "success", "message": f"Record {record_no} status is changed successfully"}, status=status.HTTP_200_OK)
-                
-                # get available status for the role
-                allowed_status = Status.get_status_by_role(role)
-                if target_status in allowed_status and target_status not in ["new", "declined", "pending"]:
-                    change_status = Status.get_previous_status(Status.get_status(target_status).status_value)
-                    if get_grn.status == change_status or get_grn.status == target_status:
-                        get_grn.status = Status.get_status(target_status).status_value 
-                        get_grn.updated_by = request.user.username
-                        get_grn.updated_at = today
-                        get_grn.save()
-                        return JsonResponse({"result": "success", "message": f"Record {record_no} status is changed successfully"}, status=status.HTTP_200_OK)
-                    else:
-                        return JsonResponse({"result": "error", "message": f"Record {record_no} is not belong to your scope"}, status=status.HTTP_400_BAD_REQUEST)
-                else:
-                    return JsonResponse({"result": "error", "message": f"Target status {target_status} is not allowed status for the role {role}"}, status=status.HTTP_400_BAD_REQUEST)
-            return JsonResponse({"result": "error", "message": f"Record {record_no} is not found"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            logger.error("Error occurred while changing status: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while changing status"}, status=status.HTTP_400_BAD_REQUEST)
-@api_view(['PATCH'])
-@permission_classes([IsAuthenticated, role_required(["purchaser", "super_admin", "purchase_head", "supervisor"])]) #purchase_head
-def approve_grn_supervisor(request) :
-    if request.method == "PATCH":
-        record_no = request.POST.get("record_no").strip()
-        grn_no = request.POST.get("grn_no").strip()
-        grn_img = request.FILES.get("grn_img")
-        approve_img = request.FILES.get("approve_img")
-        scale_img = request.FILES.get("scale_img")
-        
-        if not record_no:
-            return JsonResponse({"result": "error", "message": "Provide record no to change status"}, status=status.HTTP_400_BAD_REQUEST)
-        if not is_digit(record_no):
-            return JsonResponse({"result": "error", "message": "Record number must be digits only"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            get_grn = GRN.objects.filter(record_no=record_no).first()
-            # let's get the role
-            role = get_user_role(request.user)
-            
-            if role == "purchaser":
-                # GRN number, GRN image, Scale image is required
-                if grn_no and not(is_digit(grn_no)):
-                    return JsonResponse({"result": "error", "message": "Provide valid GRN No"}, status=status.HTTP_400_BAD_REQUEST)
-                #if not (scale_img): #grn_img and approve_img and 
-                    #return JsonResponse({"result": "error", "message": "Scale proof image is not provided"}, status=status.HTTP_400_BAD_REQUEST)
-                
-                if GRN.all_objects.filter(grn_no=grn_no).first():
-                    return JsonResponse({"result": "error", "message": "GRN No is already used"}, status=status.HTTP_400_BAD_REQUEST)
-                # upload GRN image and Scale Image
-                if get_grn:
-                    # Save the files
-                    if grn_img:
-                        grn_file_name = str(uuid.uuid4())
-                        grn_file_path = os.path.join(settings.MEDIA_ROOT, "grn-img", grn_file_name + "." + grn_img.name.split(".")[-1])
-                        os.makedirs(os.path.dirname(grn_file_path), exist_ok=True)
-                        with open(grn_file_path, 'wb+') as destination:
-                            for chunk in grn_img.chunks():
-                                destination.write(chunk)
-                        get_grn.grn_img = grn_file_name + "." + grn_img.name.split(".")[-1]
-                    
-                    if scale_img:
-                        scale_file_name = str(uuid.uuid4())
-                        scale_file_path = os.path.join(settings.MEDIA_ROOT, "scale-img", scale_file_name + "." + scale_img.name.split(".")[-1])
-                        os.makedirs(os.path.dirname(scale_file_path), exist_ok=True)
-                        with open(scale_file_path, 'wb+') as destination:
-                            for chunk in scale_img.chunks():
-                                destination.write(chunk)
-                        get_grn.scale_img = scale_file_name + "." + scale_img.name.split(".")[-1]
-                    
-                    get_grn.grn_no = grn_no
-                    get_grn.status = Status.PREPARED.status_value
-                    get_grn.updated_by = request.user.username
-                    get_grn.updated_at = today
-                    get_grn.save()
-                    
-                    return JsonResponse({"result": "success", "message": f"Record {record_no} status is prepared successfully"}, status=status.HTTP_200_OK)
-                return JsonResponse({"result": "error", "message": f"There is no GRN record under {record_no}"}, status=status.HTTP_400_BAD_REQUEST)
-            
-            if role == "purchase_head":
-                #if not (approve_img): #grn_img and approve_img and 
-                    #return JsonResponse({"result": "error", "message": "Approve proof image is not provided"}, status=status.HTTP_400_BAD_REQUEST)
-                if get_grn:
-                    if approve_img:
-                        approve_file_name = str(uuid.uuid4())
-                        approve_file_path = os.path.join(settings.MEDIA_ROOT, "approve-img", approve_file_name + "." + approve_img.name.split(".")[-1])
-                        os.makedirs(os.path.dirname(approve_file_path), exist_ok=True)
-                        with open(approve_file_path, 'wb+') as destination:
-                            for chunk in approve_img.chunks():
-                                destination.write(chunk)
-                        get_grn.approve_img = approve_file_name + "." + approve_img.name.split(".")[-1]
-                        
-                    get_grn.status = Status.VERIFIED.status_value
-                    get_grn.updated_by = request.user.username
-                    get_grn.updated_at = today
-                    get_grn.save()
-                    
-                    return JsonResponse({"result": "success", "message": f"Record {record_no} status is verified successfully"}, status=status.HTTP_200_OK)
-                return JsonResponse({"result": "error", "message": f"There is no GRN record under {record_no}"}, status=status.HTTP_400_BAD_REQUEST)
-            return JsonResponse({"result": "error", "message": f"There is no GRN record under {record_no}"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            logger.error("Error occurred while approving record: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while approving record"}, status=status.HTTP_400_BAD_REQUEST)    
+
+        result = change_grn_status_service(
+            record_nos=serializer.validated_data["record_no"],
+            role=role,
+            user=request.user,
+            data=serializer.validated_data
+        )
+
+        return JsonResponse({"result": "success", "message": "Status changed successfully", "data": result},
+                            status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error("Error changing GRN status: %s", e)
+        return JsonResponse({"result": "error", "message": "Error occurred while changing status"},
+                        status=status.HTTP_400_BAD_REQUEST)
+
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector", "purchase_head"])])
-def decline_grn(request):
+def rollback_grn(request):
     """
-    Here this end point does change the status of record to previous one if the roles are:
-    Purchaser <=== Inspector <=== Purchase head
+    Roll back GRN status for allowed roles using serializer validation.
     """
-    if request.method == "PATCH":
-        record_no = request.POST.get("record_no").strip()
-        
-        if not record_no:
-            return JsonResponse({"result": "error", "message": "Provide record no to change status"}, status=status.HTTP_400_BAD_REQUEST)
-        if not is_digit(record_no):
-            return JsonResponse({"result": "error", "message": "Record number must be digits only"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            get_grn = GRN.objects.filter(record_no=record_no).first()
-            role = get_user_role(request.user)
-            role_status = Status.get_status_by_role(role)
-            if get_grn and (get_grn.status in role_status):
-               current_status = get_grn.status
-               _status = "declined"
-               if Status.is_declined(_status):
-                    # When declining, go back to the previous status
-                    previous_status = Status.get_previous_status(current_status)
-                    if previous_status:
-                        get_grn.status = previous_status
-                        get_grn.updated_by = request.user.username
-                        get_grn.updated_at = today
-                        get_grn.save()
-                        return JsonResponse({"result": "success", "message": f"Status of {record_no} reverted to {previous_status}"}, status=status.HTTP_200_OK)
-                    else:
-                        return JsonResponse({"result": "error", "message": f"You can't decline this record {record_no}"}, status=status.HTTP_400_BAD_REQUEST)
-            return JsonResponse({"result": "error", "message": f"Record {record_no} is not found or align with your scope"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            logger.error("Error occurred while changing the status: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while changing status"}, status=status.HTTP_400_BAD_REQUEST)
-@api_view(['PATCH'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
-def decline_grn_supervisor(request) :
-    if request.method == "PATCH":
-        record_no = request.POST.get("record_no").strip()
-        
-        if not record_no:
-            return JsonResponse({"result": "error", "message": "Provide record no to change status"}, status=status.HTTP_400_BAD_REQUEST)
-        if not is_digit(record_no):
-            return JsonResponse({"result": "error", "message": "Record number must be digits only"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            get_grn = GRN.objects.filter(record_no=record_no).first()
-            _status = Status.get_status("declined")
-            if get_grn:
-                get_grn.status = _status.status_value
-                get_grn.updated_by = request.user.username
-                get_grn.updated_at = today
-                get_grn.save()
-                return JsonResponse({"result": "success", "message": "Record is declined successfully"}, status=status.HTTP_200_OK)
-            return JsonResponse({"result": "error", "message": f"Record {record_no} is not found"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e :
-            logger.error("Error occurred while declining record: %s", e)
-            return JsonResponse({"result": "error", "message" : f"Error occurred while declining record {record_no}"}, status.HTTP_400_BAD_REQUEST)
+    serializer = RollbackGRNSerializer(data=request.data)
+    if not serializer.is_valid():
+        return JsonResponse(
+            {"result": "error", "message": serializer.errors},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    record_nos = serializer.validated_data['record_nos']
+
+    # Validate each record_no is digits
+    valid_record_nos = [n for n in record_nos if is_digit(n)]
+    if not valid_record_nos:
+        return JsonResponse(
+            {"result": "error", "message": "All record numbers must be digits"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    role = get_user_role(request.user)
+
+    try:
+        result = rollback_grn_status_service(valid_record_nos, role, request.user)
+        return JsonResponse({"result": "success", "message": "Status rolled back successfully", "data": result},
+                            status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error("Error occurred while rolling back GRN status: %s", e)
+        return JsonResponse(
+            {"result": "error", "message": "Error occurred while rolling back status"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
-def delete_grn(request) :
-    if request.method == "DELETE":
-        _id = request.POST.get("_id").strip()
-        
-        if not is_valid_uuid(_id):
-            return JsonResponse({"result": "error", "message": "Not valid object ID"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            get_grn = get_object_or_404(GRN.all_objects, _id=_id)
-            get_grn.delete()
-            return JsonResponse({"result": "success", "message": f"Record is deleted successfully"}, status=status.HTTP_200_OK)
-        except Http404:
-            return JsonResponse({"result": "error", "message": "Record is not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            logger.error("Error occurred while deleting record: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while deleting record"}, status=status.HTTP_400_BAD_REQUEST)
+def delete_grn(request, _id):
+    if not is_valid_uuid(_id):
+        return JsonResponse({"result": "error", "message": "Not valid object ID"}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        grn = get_object_or_404(GRN.objects, _id=_id)
+        grn.delete()
+        return JsonResponse({"result": "success", "message": f"Record is deleted successfully"}, status=status.HTTP_200_OK)
+
+    except Http404:
+        logger.error("Record not found for ID: %s", _id)
+        return JsonResponse({"result": "error", "message": "Record is not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error("Error occurred while deleting record: %s", e)
+        return JsonResponse({"result": "error", "message": "Error occurred while deleting record"}, status=status.HTTP_400_BAD_REQUEST)
+
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
-def restore_grn(request) :
-    if request.method == "PATCH":
-        tin = request.POST.get("tin").strip()
-        
-        if not is_digit(tin):
-            return JsonResponse({"result": "error", "message": f"TIN {tin} must be digits only"}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            record_tin = clean_tin(tin)
-            get_grn = get_object_or_404(GRN.all_objects, customer=record_tin, is_deleted=True)
-            get_grn.restore()
-            return JsonResponse({"result": "success", "message": f"Record is restored successfully"}, status=status.HTTP_200_OK)
-        except ValueError:
-            return JsonResponse({"result": "error", "message": f"TIN {tin} is not valid TIN"}, status=status.HTTP_400_BAD_REQUEST)
-        except Http404:
-            return JsonResponse({"result": "error", "message": "Record is not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            logger.error("Error occurred while restoring record: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while restoring record"}, status=status.HTTP_400_BAD_REQUEST)
+def restore_grn(request, _id) :
+    if not is_valid_uuid(_id):
+        return JsonResponse({"result": "error", "message": "Not valid object ID"}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        grn = get_object_or_404(GRN.all_objects, _id=_id, is_deleted=True)
+        grn.restore()
+        return JsonResponse({"result": "success", "message": f"Record is restored successfully"}, status=status.HTTP_200_OK)
+
+    except Http404:
+        logger.error("Record not found for ID: %s", _id)
+        return JsonResponse({"result": "error", "message": "Record is not found"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error("Error occurred while restoring record: %s", e)
+        return JsonResponse({"result": "error", "message": "Error occurred while restoring record"}, status=status.HTTP_400_BAD_REQUEST)
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "finance"])])
 def get_grn_finance(request) :

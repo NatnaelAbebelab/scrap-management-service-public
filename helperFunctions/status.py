@@ -25,6 +25,16 @@ class Status(Enum):
             if status.status_value == status_str:
                 return status
         return None  # Return None if not found
+
+    @classmethod
+    def get_all_statuses(cls):
+        return [
+            {
+                "value": status.status_value,
+                "label": status.name.replace("_", " ").title()
+            }
+            for status in cls
+        ]
     
     @classmethod
     def get_roles(cls):
@@ -74,5 +84,6 @@ class Status(Enum):
     def is_declined(status):
         """ Checks if the current status is 'DECLINED' """
         return status == Status.DECLINED.status_value
+
 def is_valid_status(value):
     return any(status.status_value == value for status in Status)

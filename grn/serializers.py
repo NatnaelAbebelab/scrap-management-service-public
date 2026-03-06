@@ -1,5 +1,8 @@
 from rest_framework import serializers
 from django.db.models import Q
+
+from helperFunctions.roles import get_user_role
+from helperFunctions.validations import is_digit
 from stock.models import StockBalance
 from .models import GRN, GRNSerialNumber
 from customer.models import PurchaseCustomer
@@ -71,6 +74,7 @@ class GETGRNSSerializer(serializers.ModelSerializer) :
                             rate_info['F'] = r.fixed_rate
                             return rate_info    
         return rate_info
+
 class PlainGRNSerializer(serializers.ModelSerializer) :
     class Meta:
         model = GRN
@@ -126,6 +130,41 @@ class GRNCustomerSerializer(serializers.ModelSerializer):
             data['net_price'] = Decimal(str(data['net_price'])).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) 
         return data
 
+class ChangeGRNStatusSerializer(serializers.Serializer):
+    record_no = serializers.ListField(
+        child=serializers.CharField(),
+        required=True
+    )
+    grn_no = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    grn_img = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    scale_img = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    approve_img = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    target_status = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    def validate_record_no(self, value):
+        # ensure each record_no is digits only
+        for n in value:
+            if not is_digit(n):
+                raise serializers.ValidationError(f"Record number must be digits only: {n}")
+
+        # check existence in DB
+        existing = GRN.objects.filter(record_no__in=value).values_list("record_no", flat=True)
+        missing = list(set(value) - set(existing))
+        if missing:
+            raise serializers.ValidationError(f"Records not found: {missing}")
+        return value
+
+    def validate(self, data):
+        request = self.context.get("request")
+        role = get_user_role(request.user)
+
+        # Role-based required fields
+        if role == "purchaser" and not data.get("grn_no"):
+            raise serializers.ValidationError("grn_no is required for purchaser")
+        if role == "purchase_head" and not data.get("approve_img"):
+            raise serializers.ValidationError("approve_img is required for purchase_head")
+        return data
+
 class StockBalanceSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockBalance
@@ -153,3 +192,11 @@ class GRNSerialNumberSerializer(serializers.ModelSerializer):
             'last_used_number',
             'status',
         ]
+
+class RollbackGRNSerializer(serializers.Serializer):
+    record_nos = serializers.ListField(
+        child=serializers.CharField(),
+        required=True,
+        allow_empty=False,
+        allow_null=False
+    )
