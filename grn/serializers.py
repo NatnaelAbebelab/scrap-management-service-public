@@ -200,3 +200,82 @@ class RollbackGRNSerializer(serializers.Serializer):
         allow_empty=False,
         allow_null=False
     )
+
+class PayCustomerSerializer(serializers.Serializer):
+    record_no = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=False
+    )
+
+    def validate_record_no(self, value):
+        for r in value:
+            if not r.isdigit():
+                raise serializers.ValidationError(
+                    f"Record number {r} must be digits only"
+                )
+        return value
+
+class GRNReportFilterSerializer(serializers.Serializer):
+
+    tin = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    material_type = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    plate_no = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    start_date = serializers.DateField(required=False, allow_null=True)
+    end_date = serializers.DateField(required=False, allow_null=True)
+    status = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    def validate_tin(self, value):
+        if value:
+            return value.strip()
+        return value
+
+    def validate_material_type(self, value):
+        if value:
+            return value.lower().strip()
+        return value
+
+    def validate_status(self, value):
+        if value:
+            return value.lower().strip()
+        return value
+
+    def validate(self, data):
+        start = data.get("start_date")
+        end = data.get("end_date")
+
+        if start and end and start > end:
+            raise serializers.ValidationError(
+                "Start date cannot be greater than end date"
+            )
+
+        return data
+
+class GRNPeriodicReportSerializer(serializers.Serializer):
+
+    PERIOD_CHOICES = [
+        ("daily", "Daily"),
+        ("weekly", "Weekly"),
+        ("monthly", "Monthly"),
+        ("quarterly", "Quarterly"),
+        ("yearly", "Yearly"),
+    ]
+
+    tin = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    material_type = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    plate_no = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    status = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    start_date = serializers.DateField(required=True, allow_null=True)
+    end_date = serializers.DateField(required=True, allow_null=True)
+    period = serializers.ChoiceField(choices=PERIOD_CHOICES, allow_null=True)
+
+    def validate(self, data):
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        if start_date and end_date:
+            if start_date > end_date:
+                raise serializers.ValidationError(
+                    {"date_range": "Start date cannot be greater than end date"}
+                )
+
+        return data

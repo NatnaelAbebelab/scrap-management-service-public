@@ -1,35 +1,23 @@
-from cmath import exp
+import logging
 
-from django.conf import settings
+import pandas as pd
 from django.http import JsonResponse, Http404
-from django.db import IntegrityError
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from datetime import datetime, date
-from django.utils.timezone import now
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
-from rate.models import Rate
-from helperFunctions.material_type import *
+
 from helperFunctions.grade_type import *
-from customer.models import PurchaseCustomer
-from helperFunctions.validations import *
+from helperFunctions.material_type import *
 from helperFunctions.pagination import *
-from helperFunctions.status import *
 from helperFunctions.roles import *
+from helperFunctions.status import *
+from helperFunctions.validations import *
 from stock.views import add_purchase_stock
-from .models import GRN, GRNSerialNumber
-from django.db.models import Q
-from utils.permissions import role_required
 from utils.exceptions import *
 from utils.grade_parser import parse_scrap_grade
-from decimal import Decimal, ROUND_HALF_UP
-import pandas as pd
-import re, uuid, os, logging
-
-from .service import increment_grn_serial_number, filter_grn_service, change_grn_status_service, \
-    rollback_grn_status_service
+from utils.permissions import role_required
+from .models import GRN, GRNSerialNumber
+from .service import increment_grn_serial_number, filter_grn_service, change_grn_status_service, rollback_grn_status_service, pay_customer_service, filter_grn_report_service, generate_grn_periodic_report
 
 # Create your views here.
 
@@ -376,18 +364,13 @@ def get_grn(request):
         # --- Paginate results ---
         paginated_grn = grn_pagination(request, grn_qs)
 
-        material_types = MaterialType.get_material_types()
-        status_list = Status.get_all_statuses()
-
         return JsonResponse({
             "result": "success",
             "data": paginated_grn.data,
             "totalRecordsCount": total_records_count,
             "approvedRecordsCount": approved_records_count,
             "paidRecordsCount": paid_records_count,
-            "otherRecordsCount": other_records_count,
-            "material_types": material_types,
-            "status_list": status_list
+            "otherRecordsCount": other_records_count
         })
 
     except Exception as e:
@@ -502,201 +485,141 @@ def restore_grn(request, _id) :
         logger.error("Error occurred while restoring record: %s", e)
         return JsonResponse({"result": "error", "message": "Error occurred while restoring record"}, status=status.HTTP_400_BAD_REQUEST)
 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "finance"])])
-def get_grn_finance(request) :
-    tin = request.query_params.get("tin", "").strip()
-    material_type = request.query_params.get("material_type", "").strip().lower()
-    start_date = request.query_params.get("start_date", "").strip()
-    end_date = request.query_params.get("end_date", "").strip()
-    _status = request.query_params.get("status", "").strip().lower()
-    
-    if tin and not clean_tin(tin):
-        return JsonResponse({"result": "error", "message": "TIN has no proper value"}, status=status.HTTP_400_BAD_REQUEST)
-    if material_type and not is_valid_material(material_type):
-        return JsonResponse({"result": "error", "message": "Material type is not valid"}, status=status.HTTP_400_BAD_REQUEST)
-    if start_date and not is_valid_date(start_date):
-        return JsonResponse({"result": "error", "message": "Start date is not valid"}, status=status.HTTP_400_BAD_REQUEST)
-    if end_date and not is_valid_date(end_date):
-        return JsonResponse({"result": "error", "message": "End date is not valid"}, status=status.HTTP_400_BAD_REQUEST)
-    role = get_user_role(request.user)
-    allowed_status = Status.get_status_by_role(role)
-    if _status and _status not in allowed_status:
-        return JsonResponse({"result": "error", "message": f"{_status} is not {role.upper()} scope"}, status=status.HTTP_400_BAD_REQUEST)
-    
-    try :
-        # Base QuerySet
-        grn_records = GRN.objects.all().order_by("-record_time")
-        # Filter by TIN (Check if tin exists in Customer model)
-        if tin and clean_tin(tin):
-            customer = PurchaseCustomer.objects.filter(TIN=tin).first()
-            if customer:
-                grn_records = grn_records.filter(customer=tin)
-        # Filter by material type
-        if material_type:
-            grn_records = grn_records.filter(material_type=material_type)
-            
-        grn_records = grn_records.annotate(
-            casted_first_date=ToDate("first_date")
-        )
-        if start_date:
-            start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
-            grn_records = grn_records.filter(casted_first_date__gte=start_date)
-        if end_date:
-            end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
-            grn_records = grn_records.filter(casted_first_date__lte=end_date)      
-        # Filter by status
-        if _status:
-            grn_records = grn_records.filter(status=_status)
-        else:
-            grn_records = grn_records.filter(status__in=allowed_status)
-        
-        paginated_query = grn_pagination(request, grn_records)
-        status_list = Status.get_status_by_role(role)
-        return JsonResponse({"result": "success", "message": "GRNs are filtered successfully", "data": paginated_query.data, "status_list": status_list}, status=status.HTTP_200_OK)
-    except ValueError:
-        return JsonResponse({"result": "error", "message": f"TIN {tin} is invalid"}, status=status.HTTP_400_BAD_REQUEST)
-    except Exception as e:
-        logger.error("Error occurred while fetching records for the role: %s", e)
-        return JsonResponse({"result": "error","message": "Error occurred while fetching records for the role"}, status=status.HTTP_400_BAD_REQUEST)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "finance"])])
 def pay_customer(request):
-    """
-    Pay customer for purchase processes ===> update the agency remaining amount and paid amount
-    """
-    if request.method == "POST":
-        tin = request.POST.get("tin").strip()
-        record_no = request.POST.get("record_no").strip()
-        
-        if not is_digit(record_no):
-            return JsonResponse({"result": "error", "message": "Record no must be digits only"}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            tin = clean_tin(tin)
-            customer = get_object_or_404(PurchaseCustomer.objects, TIN=tin)
-            grn = get_object_or_404(GRN.objects, record_no=record_no)
-            
-            if float(grn.net_price) > float(customer.remaining_amount): 
-                return JsonResponse({"result": "error", "message": "Paid amount exceeds available balance"}, status=status.HTTP_400_BAD_REQUEST)
-            # pay the customer
-            customer.paid_amount = Decimal(str(float(customer.paid_amount) + float(grn.net_price))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            customer.remaining_amount = Decimal(str(float(customer.remaining_amount) - float(grn.net_price))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            customer.updated_by = request.user.username
-            customer.updated_at = today
-            customer.save()
-            
-            grn.status = Status.get_status("paid").status_value
-            grn.updated_by = request.user.username
-            grn.updated_at = today
-            grn.save()
-            return JsonResponse({"result": "success", "message": "Payment is successful"}, status=status.HTTP_200_OK)
-        except ValueError:
-            return JsonResponse({"result": "error", "message": f"TIN {tin} is not valid"}, status=status.HTTP_400_BAD_REQUEST)
-        except Http404:
-            return JsonResponse({"result": "error", "message": "Record is not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            logger.error("Error occurred while paying customer: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while paying customer"}, status=status.HTTP_400_BAD_REQUEST)
+    serializer = PayCustomerSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    record_numbers = serializer.validated_data["record_no"]
+
+    try:
+
+        result = pay_customer_service(
+            record_numbers,
+            request.user
+        )
+
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Payment successful",
+                "data": result
+            },
+            status=status.HTTP_200_OK
+        )
+
+    except ValueError as e:
+
+        return JsonResponse(
+            {"result": "error", "message": str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    except Exception as e:
+
+        logger.error("Payment error: %s", e)
+
+        return JsonResponse(
+            {"result": "error", "message": "Payment processing failed"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector", "purchase_head", "supervisor", "finance", "manager"])])
-def filter_grn_records(request):
-    """
-    Filter GRN records based on some filter criteria ==> TIN, Material Type, Plate_NO, Start Date, End Date, Status, Period
-    """
-    if request.method == "POST":
-        tin = request.POST.get("tin", "").strip()
-        material_type = request.POST.get("material_type", "").strip().lower()
-        plate_no = request.POST.get("plate_no", "").strip()
-        start_date = request.POST.get("start_date", "").strip()
-        end_date = request.POST.get("end_date", "").strip()
-        _status = request.POST.get("status", "").strip().lower()
-        
-        try:
-            # get the role of the user
-            role = get_user_role(request.user)
-            filtered_grn = filter_grn(role, tin, material_type, plate_no, start_date, end_date, _status)
-            paginated_query = grn_pagination(request, filtered_grn)
-            status_list = Status.get_status_by_role(role)
-            return JsonResponse({"result": "success", "message": "GRNs are filtered successfully", "data": paginated_query.data, "status_list": status_list}, status=status.HTTP_200_OK)
-        except ValueError:
-            return JsonResponse({"result": "error", "message": f"TIN {tin} is invalid"}, status=status.HTTP_400_BAD_REQUEST)
-        except StatusException as e:
-            return JsonResponse({"result": "error", "message": e.message}, status=status.HTTP_400_BAD_REQUEST)
-        except FilterException as e:
-            return JsonResponse({"result": "error", "message": e.message, "data": e.data}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            logger.error("Error occurred while filtering grn %s:", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while filtering grn"}, status=status.HTTP_400_BAD_REQUEST)
-@api_view(['GET'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
-def get_daily_purchase_performance(request):
-    """
-    Get daily purchase performance
-    """
-    if request.method == "GET":
-        tin = request.GET.get("tin", "").strip()
-        material_type = request.GET.get("material_type", "").strip().lower()
-        plate_no = request.GET.get("plate_no", "").strip()
-        start_date = request.GET.get("start_date", "").strip()
-        end_date = request.GET.get("end_date", "").strip()
-        _status = request.GET.get("status", "").strip().lower()
-        
-        if not start_date:
-            start_date = date.today().strftime("%Y-%m-%d")
-        
-        try:
-            # get the role of the user
-            role = get_user_role(request.user)
-            daily_performance = get_daily_performance(role, tin, material_type, start_date, end_date, plate_no, _status)
-            # Initialize result structure
-            result = {
-                "individuals": [],
-                "total_heavy_weight": 0,
-                "total_medium_weight": 0,
-                "total_light_weight": 0,
-                "total_net_weight": 0,
-            }
-            # Iterate through GRN records
-            for grn in daily_performance:
-                customer = PurchaseCustomer.objects.filter(TIN=grn.customer).first()  # Find customer by TIN
-                
-                # Build individual entry
-                individual_entry = {
-                    "plate_no": grn.plate_no,
-                    "customer": {
-                        "name": f"{customer.fname} {customer.lname}" if customer else "Unknown",
-                        "tin": grn.customer,
-                    },
-                    "grn_no": grn.grn_no,
-                    "material_type": grn.material_type,
-                    "heavy_weight": Decimal(str(grn.heavy_grade)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
-                    "medium_weight": Decimal(str(grn.medium_grade)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
-                    "light_weight": Decimal(str(grn.light_grade)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
-                    "net_weight": Decimal(str(grn.net_weight)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
-                    "weight_date": grn.first_date
-                }
+def grn_plain_report_filter(request):
 
-                # Append to individuals list
-                result["individuals"].append(individual_entry)
+    serializer = GRNReportFilterSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
 
-                # Update total weights
-                result["total_heavy_weight"] += Decimal(str(grn.heavy_grade)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) or 0
-                result["total_medium_weight"] += Decimal(str(grn.medium_grade)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) or 0
-                result["total_light_weight"] += Decimal(str(grn.light_grade)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) or 0
-                result["total_net_weight"] += Decimal(str(grn.net_weight)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) or 0
-            material_types = MaterialType.get_material_types()
-            allowed_status = Status.get_status_by_role(role)
-            return JsonResponse({"result": "success", "message": "GRNs are filtered successfully", "data": result, "material_types": material_types, "allowed_status": allowed_status}, status=status.HTTP_200_OK)
-        except ValueError:
-            return JsonResponse({"result": "error", "message": f"TIN {tin} is invalid", "material_types": material_types, "allowed_status": allowed_status}, status=status.HTTP_400_BAD_REQUEST)
-        except StatusException as e:
-            return JsonResponse({"result": "error", "message": e.message}, status=status.HTTP_400_BAD_REQUEST)
-        except DailyPerformanceException as e:
-            return JsonResponse({"result": "error", "message": e.message, "data": e.data, "material_types": material_types, "allowed_status": allowed_status}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            logger.error("Error occurred while calculating daily purchase performance %s:", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while calculating daily purchase performance", "material_types": material_types, "allowed_status": allowed_status}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+
+        queryset = filter_grn_report_service(
+            serializer.validated_data
+        )
+
+        paginated = grn_pagination(request, queryset)
+
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "GRNs filtered successfully",
+                "data": paginated.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    except StatusException as e:
+
+        return JsonResponse(
+            {"result": "error", "message": e.message},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    except FilterException as e:
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": e.message,
+                "data": e.data,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    except Exception as e:
+
+        logger.error("Error filtering GRN: %s", e)
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error occurred while filtering GRN",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector", "purchase_head", "supervisor", "finance", "manager"])])
+def grn_periodic_report(request):
+    """
+    Generate periodic GRN report
+    """
+
+    serializer = GRNPeriodicReportSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    try:
+
+        report = generate_grn_periodic_report(serializer.validated_data)
+
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Report generated successfully",
+                "meta": {
+                    "start_date": report["start_date"],
+                    "end_date": report["end_date"],
+                    "period": report["period"],
+                },
+                "data": report["data"],
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    except Exception as e:
+
+        logger.error("Error generating GRN periodic report: %s", e)
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Failed to generate report",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector", "purchase_head", "supervisor", "finance", "manager"])])
 def search_record(request):
@@ -930,3 +853,23 @@ def get_scrap_receipt(request, record_no):
     except Exception as e:
         logger.error("Error occurred while getting GRN record: %s", e)
         return JsonResponse({"result": "error", "message": "Error occurred while getting GRN record", "content": e}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_material_types(request):
+    try:
+        material_types = MaterialType.get_material_types()
+        return JsonResponse({"result": "success", "message": "Material types are fetched successfully", "data": material_types}, status=status.HTTP_200_OK)
+    except Exception as e:
+        logger.error("Error occurred while getting material types: %s", e)
+        return JsonResponse({"result": "error", "message": "Error occurred while getting material types"}, status=status.HTTP_400_BAD_REQUEST)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_status_list(request):
+    try:
+        status_list = Status.get_all_statuses()
+        return JsonResponse({"result": "success", "message": "Status list is fetched successfully", "data": status_list}, status=status.HTTP_200_OK)
+    except Exception as e:
+        logger.error("Error occurred while getting status list: %s", e)
+        return JsonResponse({"result": "error", "message": "Error occurred while getting status list"}, status=status.HTTP_400_BAD_REQUEST)

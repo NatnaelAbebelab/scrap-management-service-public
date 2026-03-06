@@ -10,11 +10,10 @@ urlpatterns = [
     path('rollback-grn-status/', views.rollback_grn, name='rollback_grn'),
     path('delete-grn/<str:_id>/', views.delete_grn, name='delete_grn'),
     path('restore-grn/<str:_id>/', views.restore_grn, name='restore_grn'),
-    
-    path('finance-grn/', views.get_grn_finance, name='get_grn_finance'),
+
     path('pay-customer/', views.pay_customer, name='pay_customer'),
-    path('filter-grn/', views.filter_grn_records, name='filter_grn-records'),
-    path('get-daily-purchase-performance/', views.get_daily_purchase_performance, name='get_daily_purchase_performance'),
+    path('grn-plain-report/', views.grn_plain_report_filter, name='grn-plain-report'),
+    path('grn-periodic-report/', views.grn_periodic_report, name='grn-periodic-report'),
     
     path('search/', views.search_record, name='search_record'),
     
@@ -24,4 +23,7 @@ urlpatterns = [
     path('initialize-grn-serial-number/<int:initial_serial_number>/', views.initialize_grn_serial_number, name='initialize-grn-serial-number'),
     path('get-grn-serial-numbers/', views.get_grn_serial_numbers, name='get-grn-serial-numbers'),
     path('get-scrap-receipt/<str:record_no>/', views.get_scrap_receipt, name='get-scrap-receipt'),
+
+    path('get-material-types', views.get_material_types, name='get-material-types'),
+    path('get-status-list', views.get_status_list, name='get-status-list')
 ]
