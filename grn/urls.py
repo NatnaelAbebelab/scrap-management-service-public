@@ -5,14 +5,11 @@ urlpatterns = [
     path('upload/', views.upload_csv_file, name='upload_csv_file'),
     path('grn/', views.get_grn, name='get_grn'),
     
-    path('change-status-bulk/', views.change_grn_status_bulk, name='change_grn_status_bulk'),
-    path('change-status-individual/', views.change_grn_status_individual, name='change_grn_status_individual'),
-    path('approve-grn-supervisor/', views.approve_grn_supervisor, name='approve_grn_supervisor'),
-    
-    path('decline-grn/', views.decline_grn, name='decline_grn'),
-    path('decline-grn-supervisor/', views.decline_grn_supervisor, name='decline_grn_supervisor'),
-    path('delete-grn/', views.delete_grn, name='delete_grn'),
-    path('restore-grn/', views.restore_grn, name='restore_grn'),
+    path('change-grn-status/', views.change_grn_status, name='change_grn_status'),
+
+    path('rollback-grn-status/', views.rollback_grn, name='rollback_grn'),
+    path('delete-grn/<str:_id>/', views.delete_grn, name='delete_grn'),
+    path('restore-grn/<str:_id>/', views.restore_grn, name='restore_grn'),
     
     path('finance-grn/', views.get_grn_finance, name='get_grn_finance'),
     path('pay-customer/', views.pay_customer, name='pay_customer'),
