@@ -92,6 +92,7 @@ def edit_customer(request, customer_id):
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
+        logger.error("Error occurred while updating customer: %s", e)
         return JsonResponse(
             {"result": "error", "message": "Operation failed"},
             status=status.HTTP_400_BAD_REQUEST
