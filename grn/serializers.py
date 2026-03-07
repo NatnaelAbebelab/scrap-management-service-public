@@ -279,3 +279,18 @@ class GRNPeriodicReportSerializer(serializers.Serializer):
                 )
 
         return data
+
+class GRNSearchSerializer(serializers.Serializer):
+    search_query = serializers.CharField(required=False, allow_blank=True)
+
+class WasteDeductionSerializer(serializers.Serializer):
+    record_no = serializers.IntegerField()
+    waste = serializers.FloatField(min_value=0)
+
+    def validate(self, data):
+        if data["waste"] <= 0:
+            raise serializers.ValidationError("Waste must be greater than 0")
+        return data
+
+class InitializeGRNSerialSerializer(serializers.Serializer):
+    initial_serial_number = serializers.IntegerField(min_value=1)
