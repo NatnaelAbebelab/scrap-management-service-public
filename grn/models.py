@@ -1,6 +1,6 @@
 from django.core.validators import MinValueValidator
-from django.db import models
-from datetime import datetime
+from django.db import models, transaction
+from datetime import datetime, timezone
 import uuid
 # Create your models here.
 class ScrapItemManager(models.Manager):
@@ -70,38 +70,62 @@ class GRN(models.Model) :
         self.save()
 
 class GRNSerialNumber(models.Model):
-    _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    initial_number = models.IntegerField(
-        validators=[
-            MinValueValidator(10000, message="Ensure this value has at least 5 digits."),
-        ],
-        help_text="Enter a 5-digit Serial code.", default=10000
-    )
-    last_used_number = models.IntegerField(
-        validators=[
-            MinValueValidator(10000, message="Ensure this value has at least 5 digits."),
-        ],
-        help_text="Enter a 5-digit Serial code.", default=0)
-    status = models.CharField(max_length=255, blank=True, default='active')
-    is_deleted = models.BooleanField(default=False)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_at = models.CharField(max_length=255, blank=True)
-    updated_by = models.CharField(max_length=255, blank=True)
-    updated_at = models.CharField(max_length=255, blank=True)
-    record_time = models.DateTimeField(auto_now=True)
+    STATUS_ACTIVE = "active"
+    STATUS_EXPIRED = "expired"
 
-    def __str__(self):
-        return self._id
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, "Active"),
+        (STATUS_EXPIRED, "Expired"),
+    ]
+
+    _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    initial_number = models.IntegerField(
+        validators=[MinValueValidator(10000, message="Ensure this value has at least 5 digits.")],
+        help_text="Enter a 5-digit Serial code.",
+        default=10000
+    )
+
+    last_used_number = models.IntegerField(
+        validators=[MinValueValidator(10000, message="Ensure this value has at least 5 digits.")],
+        help_text="Enter a 5-digit Serial code.",
+        default=10000
+    )
+
+    status = models.CharField(max_length=255, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
+    is_deleted = models.BooleanField(default=False)
+
+    created_by = models.CharField(max_length=255, blank=True)
+    updated_by = models.CharField(max_length=255, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    record_time = models.DateTimeField(auto_now=True)
 
     objects = ScrapItemManager()
     all_objects = models.Manager()
 
+    def __str__(self):
+        return str(self._id)
+
     def delete(self, *args, **kwargs):
         self.is_deleted = True
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
-        self.save()
+        self.updated_at = timezone.now()
+        self.save(update_fields=["is_deleted", "updated_at"])
 
     def restore(self):
         self.is_deleted = False
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
-        self.save()
+        self.updated_at = timezone.now()
+        self.save(update_fields=["is_deleted", "updated_at"])
+
+    @transaction.atomic
+    def get_next_serial(self):
+        serial = GRNSerialNumber.objects.select_for_update().get(pk=self.pk)
+        serial.last_used_number += 1
+        serial.save(update_fields=["last_used_number"])
+        return serial.last_used_number
+
+    @classmethod
+    def get_active_serial(cls):
+        return cls.objects.filter(status=cls.STATUS_ACTIVE).first()

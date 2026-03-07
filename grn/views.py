@@ -1,6 +1,7 @@
 import logging
 
 import pandas as pd
+from django.core.exceptions import ValidationError
 from django.http import JsonResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view, permission_classes
@@ -17,7 +18,9 @@ from utils.exceptions import *
 from utils.grade_parser import parse_scrap_grade
 from utils.permissions import role_required
 from .models import GRN, GRNSerialNumber
-from .service import increment_grn_serial_number, filter_grn_service, change_grn_status_service, rollback_grn_status_service, pay_customer_service, filter_grn_report_service, generate_grn_periodic_report
+from .service import increment_grn_serial_number, filter_grn_service, change_grn_status_service, \
+    rollback_grn_status_service, pay_customer_service, filter_grn_report_service, generate_grn_periodic_report, \
+    build_grn_search_queryset, apply_waste_deduction, initialize_grn_serial_number
 
 # Create your views here.
 
@@ -621,191 +624,151 @@ def grn_periodic_report(request):
         )
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector", "purchase_head", "supervisor", "finance", "manager"])])
+@permission_classes([IsAuthenticated])
 def search_record(request):
     """
-    Search record based on some filter criteria ==> Record No, Plate No, TIN, Material Type, Weight Date(First Date), GRN No, Status
+    GET /api/grn/search/?search_query=5017
+    Search GRN records using a keyword.
+    Search fields:
+    - Record No
+    - Plate No
+    - TIN
+    - Material Type
+    - Weight Date (First Date)
+    - GRN No
+    - Status
     """
-    if request.method == "GET":
-        search_query = request.query_params.get("search_query", "").strip().lower()
 
-        try:
-            role = get_user_role(request.user)
-            # Base QuerySet
-            grn_records = GRN.objects.all().order_by("-record_time")
-            
-            filter = Q()
-            allowed_status = Status.get_status_by_role(role)
-            if search_query:
-                filter |= Q(record_no__icontains=search_query)
-                filter |= Q(plate_no__icontains=search_query)
-                filter |= Q(customer__icontains=search_query)
-                filter |= Q(material_type__icontains=search_query)
-                filter |= Q(first_date__icontains=search_query)
-                filter |= Q(grn_no__icontains=search_query)
-                filter |= Q(status__icontains=search_query) & Q(status__in=allowed_status)
+    serializer = GRNSearchSerializer(data=request.query_params)
+    serializer.is_valid(raise_exception=True)
 
-            grn_records = grn_records.filter(filter)
-            paginated_query = grn_pagination(request, grn_records)
-            material_types = MaterialType.get_material_types()
-            status_list = Status.get_status_by_role(role)
-            return JsonResponse({"result": "success", "message": "GRNs search result is fetched successfully", "data": paginated_query.data, "material_types": material_types, "status_list": status_list}, status=status.HTTP_200_OK)
-        except Exception as e:
-            logger.error("Error occurred while searching grn %s:", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while searching grn"}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        role = get_user_role(request.user)
+        search_query = serializer.validated_data.get("search_query")
+
+        queryset = build_grn_search_queryset(search_query, role)
+
+        paginated_query = grn_pagination(request, queryset)
+
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "GRNs search result fetched successfully",
+                "data": paginated_query.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    except Exception as e:
+        logger.error("Error occurred while searching GRN: %s", str(e))
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error occurred while searching GRN",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector"])])
 def add_waste_deduction(request):
-    """
-    Add waste deducted amount in Kg
-    """
-    if request.method == "POST":
-        record_no = request.POST.get("record_no").strip()
-        waste = request.POST.get("waste", "0").strip()
-        
-        if not is_digit(record_no):
-            return JsonResponse({"result": "error", "message": f"Record no {record_no} must be digits only"}, status=status.HTTP_400_BAD_REQUEST)
-        if not is_digit(waste):
-            return JsonResponse({"result": "error", "message": f"Waste deduction {waste} must be whole numbers"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            # get the grn record
-            get_grn = get_object_or_404(GRN.objects, record_no=record_no)
-            
-            if float(waste) >= float(get_grn.net_weight):
-                return JsonResponse({"result": "error", "message": f"Waste deduction amount {waste} must be less than net weight {get_grn.net_weight}"}, status=status.HTTP_400_BAD_REQUEST)
-            
-            #net_weight = get_grn.net_weight
-            first_weight = float(get_grn.first_weight or 0)
-            second_weight = float(get_grn.second_weight or 0)
-            net_weight = first_weight - second_weight
-            # get material type
-            material_type = get_grn.material_type
-            if material_type == MaterialType.SCRAP.value:
-                type = get_grn.type
-                grade_percentage = parse_scrap_grade(type)
-                
-                new_net_weight = float(net_weight) - float(waste)
-                heavy_grade = new_net_weight if grade_percentage["H"] == 100 else (grade_percentage["H"] / 100) * new_net_weight
-                medium_grade = new_net_weight if grade_percentage["M"] == 100 else (grade_percentage["M"] / 100) * new_net_weight
-                light_grade = new_net_weight if grade_percentage["L"] == 100 else (grade_percentage["L"] / 100) * new_net_weight
-                
-                # calculate the new net price
-                new_net_price = (heavy_grade * float(get_grn.heavy_rate)) + (medium_grade * float(get_grn.medium_rate)) + (light_grade * float(get_grn.light_rate))
-                
-                # save the new info
-                get_grn.net_weight = new_net_weight
-                get_grn.heavy_grade = heavy_grade
-                get_grn.medium_grade = medium_grade
-                get_grn.light_grade = light_grade
-                get_grn.net_price = new_net_price
-                get_grn.waste_deduction = waste
-                get_grn.save()
-            else:
-                fixed_rate = get_grn.fixed_rate
-                
-                # calculate the new net weight and new net price
-                new_net_weight = float(net_weight) - float(waste)
-                new_net_price = new_net_weight * float(fixed_rate)
-                
-                # save the new info
-                get_grn.net_weight = new_net_weight
-                get_grn.net_price = new_net_price
-                get_grn.waste_deduction = waste
-                get_grn.save()
-            return JsonResponse({"result": "success", "message": f"Waste deduction {waste} is added successfully"}, status=status.HTTP_200_OK)
-        except Http404:
-            return JsonResponse({"result": "error", "message": "Record is not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            logger.error("Error occurred while adding deduction: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while adding deduction"}, status=status.HTTP_400_BAD_REQUEST)
-@api_view(['PATCH'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector"])])
-def edit_waste_deduction(request):
-    """
-    Edit waste deducted amount in Kg
-    """
-    if request.method == "PATCH":
-        record_no = request.POST.get("record_no").strip()
-        waste = request.POST.get("waste", 0).strip()
-        
-        if not is_digit(record_no):
-            return JsonResponse({"result": "error", "message": f"Record no {record_no} must be digits only"}, status=status.HTTP_400_BAD_REQUEST)
-        if not is_digit(waste):
-            return JsonResponse({"result": "error", "message": f"Waste deduction {waste} must be whole numbers"}, status=status.HTTP_400_BAD_REQUEST)
-        
-        try:
-            # get the grn record
-            get_grn = get_object_or_404(GRN.objects, record_no=record_no)
-            
-            if float(waste) >= float(get_grn.net_weight):
-                return JsonResponse({"result": "error", "message": f"Waste deduction amount {waste} must be less than net weight {get_grn.net_weight}"}, status=status.HTTP_400_BAD_REQUEST)
-            
-            net_weight = float(get_grn.first_weight) - float(get_grn.second_weight) # get the net_weight back to first phase (on upload time)
-            # get material type
-            material_type = get_grn.material_type
-            if material_type == MaterialType.SCRAP.value:
-                type = get_grn.type
-                grade_percentage = parse_scrap_grade(type)
-                
-                new_net_weight = float(net_weight) - float(waste)
-                heavy_grade = new_net_weight if grade_percentage["H"] == 100 else (grade_percentage["H"] / 100) * new_net_weight
-                medium_grade = new_net_weight if grade_percentage["M"] == 100 else (grade_percentage["M"] / 100) * new_net_weight
-                light_grade = new_net_weight if grade_percentage["L"] == 100 else (grade_percentage["L"] / 100) * new_net_weight
-                
-                # calculate the new net price
-                new_net_price = (heavy_grade * float(get_grn.heavy_rate)) + (medium_grade * float(get_grn.medium_rate)) + (light_grade * float(get_grn.light_rate))
-                
-                # save the new info
-                get_grn.net_weight = new_net_weight
-                get_grn.heavy_grade = heavy_grade
-                get_grn.medium_grade = medium_grade
-                get_grn.light_grade = light_grade
-                get_grn.net_price = new_net_price
-                get_grn.waste_deduction = waste
-                get_grn.save()
-            else:
-                fixed_rate = get_grn.fixed_rate
-                
-                # calculate the new net weight and new net price
-                new_net_weight = float(net_weight) - float(waste)
-                new_net_price = new_net_weight * float(fixed_rate)
-                
-                # save the new info
-                get_grn.net_weight = new_net_weight
-                get_grn.net_price = new_net_price
-                get_grn.waste_deduction = waste
-                get_grn.save()
-            return JsonResponse({"result": "success", "message": f"Waste deduction {waste} is edited successfully"}, status=status.HTTP_200_OK)
-        except Http404:
-            return JsonResponse({"result": "error", "message": "Record is not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            logger.error("Error occurred while editing deduction: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while editing deduction"}, status=status.HTTP_400_BAD_REQUEST)
+
+    serializer = WasteDeductionSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    record_no = serializer.validated_data["record_no"]
+    waste = serializer.validated_data["waste"]
+
+    try:
+
+        result = apply_waste_deduction(record_no, waste)
+
+        serializer = GRNSerializer(result)
+
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": f"Waste deduction {waste} added successfully",
+                "data": serializer.data
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    except Http404:
+
+        logger.error("GRN record is not found")
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "GRN record is not found",
+            },
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    except ValueError as e:
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": str(e),
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    except Exception as e:
+
+        logger.error("Error occurred while adding waste deduction: %s", str(e))
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error occurred while adding deduction",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
-def initialize_grn_serial_number(request, initial_serial_number):
-    """
-    Initialize a new grn serial number
-    """
+def initialize_grn_serial(request):
+
+    serializer = InitializeGRNSerialSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
     try:
-        # First, get the current active last used serial number
-        last_used_serial_num = GRNSerialNumber.objects.filter(status='active').first()
-        if last_used_serial_num and int(initial_serial_number) < last_used_serial_num.last_used_number:
-            return JsonResponse({"result": "error", "message": "Initial serial number is among used serial numbers"}, status=status.HTTP_400_BAD_REQUEST)
 
-        new_initial_serial_number = GRNSerialNumber.objects.create(
-            initial_number=int(initial_serial_number),
+        new_serial = initialize_grn_serial_number(
+            serializer.validated_data["initial_serial_number"]
         )
-        new_initial_serial_number.save()
-        GRNSerialNumber.objects.exclude(_id=new_initial_serial_number._id).update(status='expired')
 
-        return JsonResponse({"result": "success", "message": "New initial GRN Serial Number is set.", "data": GRNSerialNumberSerializer(new_initial_serial_number).data}, status=status.HTTP_200_OK)
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "New initial GRN serial number set successfully",
+                "data": GRNSerialNumberSerializer(new_serial).data,
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+    except ValidationError as e:
+
+        return JsonResponse(
+            {"result": "error", "message": str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
     except Exception as e:
-        logger.error("Error occurred while initializing new GRN Serial Number: %s", e)
-        return JsonResponse({"result": "error", "message": "Error occurred while initializing new GRN Serial Number", "content": e}, status=status.HTTP_400_BAD_REQUEST)
+
+        logger.error("Error initializing GRN serial number: %s", str(e))
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error occurred while initializing GRN serial number",
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -831,12 +794,18 @@ def delete_grn_serial_number(request, num_id):
     try:
         serial_number = get_object_or_404(GRNSerialNumber.objects, _id=num_id)
         serial_number.delete()
-        return JsonResponse({"result": "success", "message": "You've deleted GRN Serial number successfully."}, status=status.HTTP_200_OK)
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "You've deleted GRN Serial number successfully."},
+            status=status.HTTP_200_OK
+        )
+
     except Http404:
         return JsonResponse({"result": "error", "message": "GRN serial number record not found."}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         logger.error("Error occurred while deleting GRN Serial Number: %s", e)
-        return JsonResponse({"result": "error", "message": "Error occurred while deleting GRN Serial Number", "content": e}, status=status.HTTP_400_BAD_REQUEST)
+        return JsonResponse({"result": "error", "message": "Error occurred while deleting GRN Serial Number", "content": e}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -845,31 +814,82 @@ def get_scrap_receipt(request, record_no):
         # Get GRN record
         grn_record = get_object_or_404(GRN.objects, record_no=record_no)
         serializer = GRNCustomerSerializer(grn_record)
-        return JsonResponse({"result": "success", "message": record_no + " receipt is generated successfully.", "content": serializer.data}, status=status.HTTP_200_OK)
+
+        return JsonResponse({
+            "result": "success",
+            "message": record_no + " receipt is generated successfully.",
+            "content": serializer.data
+        }, status=status.HTTP_200_OK)
 
     except Http404:
+
         logger.error("No record found under given record no: %s", record_no)
-        return JsonResponse({"result": "error", "message": "No record found under given record no."}, status=status.HTTP_404_NOT_FOUND)
+
+        return JsonResponse(
+            {"result": "error",
+             "message": "No record found under given record no."
+             },
+            status=status.HTTP_404_NOT_FOUND
+        )
+
     except Exception as e:
         logger.error("Error occurred while getting GRN record: %s", e)
-        return JsonResponse({"result": "error", "message": "Error occurred while getting GRN record", "content": e}, status=status.HTTP_400_BAD_REQUEST)
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error occurred while getting GRN record",
+                "content": e
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_material_types(request):
     try:
         material_types = MaterialType.get_material_types()
-        return JsonResponse({"result": "success", "message": "Material types are fetched successfully", "data": material_types}, status=status.HTTP_200_OK)
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Material types are fetched successfully",
+                "data": material_types
+            },
+            status=status.HTTP_200_OK
+        )
+
     except Exception as e:
         logger.error("Error occurred while getting material types: %s", e)
-        return JsonResponse({"result": "error", "message": "Error occurred while getting material types"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error occurred while getting material types"
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_status_list(request):
     try:
         status_list = Status.get_all_statuses()
-        return JsonResponse({"result": "success", "message": "Status list is fetched successfully", "data": status_list}, status=status.HTTP_200_OK)
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Status list is fetched successfully",
+                "data": status_list
+            },
+            status=status.HTTP_200_OK
+        )
+
     except Exception as e:
         logger.error("Error occurred while getting status list: %s", e)
-        return JsonResponse({"result": "error", "message": "Error occurred while getting status list"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error occurred while getting status list"
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
