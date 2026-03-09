@@ -18,7 +18,7 @@ urlpatterns = [
     path('search/', views.search_record, name='search_record'),
     path('add-waste/', views.add_waste_deduction, name='add_waste_deduction'),
 
-    path('initialize-grn-serial-number/<int:initial_serial_number>/', views.initialize_grn_serial, name='initialize-grn-serial-number'),
+    path('initialize-grn-serial-number/', views.initialize_grn_serial, name='initialize-grn-serial-number'),
     path('get-grn-serial-numbers/', views.get_grn_serial_numbers, name='get-grn-serial-numbers'),
     path('get-scrap-receipt/<str:record_no>/', views.get_scrap_receipt, name='get-scrap-receipt'),
 
