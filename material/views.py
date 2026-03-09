@@ -13,7 +13,7 @@ from material.enums import Plants, RequisitionStatus, IssueStatus
 from material.report import MaterialRequisitionFilter, RawMaterialIssueFilter
 from material.models import MaterialRequisition, MaterialRequisitionItem, RawMaterialIssue, MeltingPlants
 from material.serializers import MaterialRequisitionSerializer, RawMaterialIssueSerializer, ApprovedMaterialRequisitionSerializer, MeltingPlantsSerializer
-from stock.models import CumulativeBalance
+from stock.models import BeginningBalance
 from stock.views import add_transport_balance
 
 # Create your views here.
@@ -218,7 +218,7 @@ def add_material_requisition(request):
         if not plant:
             return JsonResponse({"result": "error", "message": "Melting plant is required", "content": ""}, status=status.HTTP_400_BAD_REQUEST)
 
-        active_balance = CumulativeBalance.objects.filter(is_active=True, is_deleted=False).first()
+        active_balance = BeginningBalance.objects.filter(is_active=True, is_deleted=False).first()
         current_balance = float(active_balance.current_balance) if active_balance.current_balance else 0.0
 
         melting_plant = get_object_or_404(MeltingPlants, _id=plant)

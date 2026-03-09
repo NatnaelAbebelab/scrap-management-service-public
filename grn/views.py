@@ -13,9 +13,8 @@ from helperFunctions.pagination import *
 from helperFunctions.roles import *
 from helperFunctions.status import *
 from helperFunctions.validations import *
-from stock.views import add_purchase_stock
+from stock.services import add_purchase_stock_record
 from utils.exceptions import *
-from utils.grade_parser import parse_scrap_grade
 from utils.permissions import role_required
 from .models import GRN, GRNSerialNumber
 from .service import increment_grn_serial_number, filter_grn_service, change_grn_status_service, \
@@ -177,12 +176,8 @@ def upload_csv_file(request):
         all_tins = {clean_tin(str(r.get("FIRM", "")).strip()) for r in records}
         customer_cache = {c.TIN: c for c in PurchaseCustomer.objects.filter(TIN__in=all_tins)}
 
-        # -------------------------
-        # Prepare Bulk Inserts
-        # -------------------------
         grn_bulk = []
-        new_customers_bulk = []
-        total_purchase_weight = {}
+        stock_records = []
 
         for record in records:
             try:
@@ -261,37 +256,48 @@ def upload_csv_file(request):
                 customer_tin = clean_tin(firm)
                 serial_number = increment_grn_serial_number()
 
-                grn_bulk.append(
-                    GRN(
+                grn = GRN(
+                    record_no=record_no,
+                    plate_no=record.get("PLATE NO"),
+                    first_weight=record.get("1ST WEIGHING"),
+                    first_date=record.get("DATE1"),
+                    second_weight=record.get("2ND WEIGHING"),
+                    net_weight=net_weight,
+                    customer=customer_tin,
+                    material_type=MaterialType[material_type.upper()].value,
+                    heavy_grade=grade["H"],
+                    medium_grade=grade["M"],
+                    light_grade=grade["L"],
+                    heavy_rate=used_rate["H"],
+                    medium_rate=used_rate["M"],
+                    light_rate=used_rate["L"],
+                    fixed_rate=used_rate["F"],
+                    serial_no=serial_number,
+                    net_price=round(net_price, 2),
+                    status="new",
+                    created_by=request.user,
+                    updated_by=request.user
+                )
+                grn_bulk.append(grn)
+
+                # -------------------------
+                # Stock Record (per GRN)
+                # -------------------------
+                date_key = record.get("DATE1")
+
+                if material_type == "scrap":
+                    stock = add_purchase_stock_record(
+                        date_str=date_key,
+                        purchase_qty=net_weight,
+                        purchase_value=net_price,
+                        grn_no=serial_number,
                         record_no=record_no,
-                        plate_no=record.get("PLATE NO"),
-                        first_weight=record.get("1ST WEIGHING"),
-                        first_date=record.get("DATE1"),
-                        second_weight=record.get("2ND WEIGHING"),
-                        net_weight=net_weight,
-                        customer=customer_tin,
-                        material_type=MaterialType[material_type.upper()].value,
-                        heavy_grade=grade["H"],
-                        medium_grade=grade["M"],
-                        light_grade=grade["L"],
                         heavy_rate=used_rate["H"],
                         medium_rate=used_rate["M"],
                         light_rate=used_rate["L"],
-                        fixed_rate=used_rate["F"],
-                        serial_no=serial_number,
-                        net_price=round(net_price, 2),
-                        status="new",
-                        created_by=request.user.username,
-                        updated_by=request.user.username,
+                        user=request.user
                     )
-                )
-
-                # -------------------------
-                # Stock Map
-                # -------------------------
-                date_key = record.get("DATE1")
-                total_purchase_weight.setdefault(date_key, {"purchase_weight": 0.0, "transport_weight": 0.0})
-                total_purchase_weight[date_key]["purchase_weight"] += net_weight
+                    stock_records.append(stock)
 
                 # -------------------------
                 # Customer Update
@@ -307,7 +313,6 @@ def upload_csv_file(request):
                         updated_by=request.user.username
                     )
                     customer_cache[customer_tin] = new_cust
-                    new_customers_bulk.append(new_cust)
 
             except Exception as e:
                 logger.error("Error processing record %s: %s", record.get("RECORD NO"), e)
@@ -315,22 +320,21 @@ def upload_csv_file(request):
                 continue
 
         # -------------------------
-        # Bulk Insert
+        # Bulk Insert GRNs and Customers
         # -------------------------
-        GRN.objects.bulk_create(grn_bulk, batch_size=500)
-        if new_customers_bulk:
-            PurchaseCustomer.objects.bulk_create(new_customers_bulk, batch_size=200)
+        if grn_bulk:
+            GRN.objects.bulk_create(grn_bulk, batch_size=500)
+        if stock_records:
+            StockBalance.objects.bulk_create(stock_records, batch_size=500)
         if customer_cache:
             PurchaseCustomer.objects.bulk_update(customer_cache.values(), ["remaining_amount"])
-
-        stock_balance = add_purchase_stock(total_purchase_weight, request)
 
         return JsonResponse({
             "result": "success",
             "message": "File uploaded successfully",
             "skipped_records": skipped_records,
-            "total_inserted": len(grn_bulk),
-            "stock_balance": stock_balance,
+            "total_grns": len(grn_bulk),
+            "stock_records_created": len(stock_records),
         }, status=200)
 
     except Exception as e:

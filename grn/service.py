@@ -15,7 +15,6 @@ from grn.models import GRN
 from grn.models import GRNSerialNumber
 from helperFunctions.material_type import MaterialType
 from helperFunctions.status import Status
-from utils.grade_parser import parse_scrap_grade
 from .workflow.transitions import get_next_status
 
 today = timezone.now()
@@ -112,7 +111,6 @@ def change_grn_status_service(record_nos, role, user, data):
         # Update status
         record.status = next_status
         record.updated_by = user.username
-        record.updated_at = today
         record.save()
         updated_records.append(record.record_no)
 
@@ -150,7 +148,6 @@ def rollback_grn_status_service(record_nos, role, user):
             if previous_status:
                 record.status = previous_status
                 record.updated_by = user.username
-                record.updated_at = today
                 record.save()
                 rollback_records.append(record.record_no)
             else:
@@ -205,14 +202,12 @@ def pay_customer_service(record_numbers, user):
         customer.paid_amount = Decimal(customer.paid_amount) + total_amount
         customer.remaining_amount = Decimal(customer.remaining_amount) - total_amount
         customer.updated_by = user.username
-        customer.updated_at = today
         customer.save()
 
         # update GRN status
         grns.update(
             status=Status.PAID.status_value,
             updated_by=user.username,
-            updated_at=today
         )
 
         return {
@@ -448,10 +443,14 @@ def initialize_grn_serial_number(initial_serial_number):
                 "Initial serial number is among used serial numbers"
             )
 
-        new_serial = GRNSerialNumber.objects.create(
+        new_serial = GRNSerialNumber(
             initial_number=initial_serial_number,
+            last_used_number=initial_serial_number,
             status=GRNSerialNumber.STATUS_ACTIVE
         )
+
+        new_serial.full_clean()
+        new_serial.save()
 
         GRNSerialNumber.objects.exclude(_id=new_serial._id).update(
             status=GRNSerialNumber.STATUS_EXPIRED

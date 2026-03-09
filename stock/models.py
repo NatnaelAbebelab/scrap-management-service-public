@@ -14,15 +14,16 @@ class StockBalance(models.Model):
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # Transaction references
-    grn_no = models.CharField(max_length=255, blank=True)
-    issue_no = models.CharField(max_length=255, blank=True)
+    grn_no = models.CharField(max_length=255, blank=True, null=True)
+    record_no = models.CharField(max_length=255, blank=True, null=True)
+    issue_no = models.CharField(max_length=255, blank=True, null=True)
 
     # Quantities
     purchased_qty = models.FloatField(default=0.0)
     issued_qty = models.FloatField(default=0.0)
 
     # Prices / Rates
-    avarage_rate = models.FloatField(default=0.0)
+    average_rate = models.FloatField(default=0.0)
     purchased_value = models.FloatField(default=0.0)
     issue_value = models.FloatField(default=0.0)
 
@@ -31,7 +32,7 @@ class StockBalance(models.Model):
     remaining_value = models.FloatField(default=0.0)
 
     # Date info
-    weight_date = models.CharField(max_length=255, blank=True)
+    weight_date = models.CharField(max_length=255, blank=True, null=True)
     record_time = models.DateTimeField(auto_now=True)
     is_deleted = models.BooleanField(default=False)
 
@@ -43,7 +44,7 @@ class StockBalance(models.Model):
         blank=True,
         related_name="stock_balance_created"
     )
-    created_at = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,
@@ -51,7 +52,7 @@ class StockBalance(models.Model):
         blank=True,
         related_name="stock_balance_updated"
     )
-    updated_at = models.CharField(max_length=255, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return str(self._id)
