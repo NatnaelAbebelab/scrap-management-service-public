@@ -1,21 +1,27 @@
+import json
 import logging
 from datetime import datetime
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Sum, DateTimeField
+from django.db.models.functions import Cast
 from django.http import JsonResponse
 from rest_framework import status
 from rest_framework.decorators import permission_classes, api_view
 from rest_framework.permissions import IsAuthenticated
 
 from helperFunctions.pagination import stock_balance_pagination
-from stock.models import StockBalance, CumulativeBalance
+from stock.models import StockBalance, BeginningBalance
+from stock.serializers import BeginningBalanceSerializer
+from stock.services import create_beginning_balance
 from stock.utils.date_format import _default_date_range, parse_date, convert_date_format
 from utils.permissions import role_required
-import json
+
 # Create your views here.
 logger = logging.getLogger(__name__)
 today = datetime.today().strftime('%Y-%m-%d')
+User = get_user_model()
 
 @permission_classes([IsAuthenticated])
 def add_purchase_stock(purchase_weight_data, request):
@@ -29,7 +35,7 @@ def add_purchase_stock(purchase_weight_data, request):
         try:
             today_str = datetime.now().strftime("%Y-%m-%d")
 
-            active_cumulative_balance = CumulativeBalance.objects.filter(
+            active_cumulative_balance = BeginningBalance.objects.filter(
                 is_active=True,
                 is_deleted=False
             ).select_for_update().first()
@@ -106,7 +112,7 @@ def add_purchase_stock(purchase_weight_data, request):
 @permission_classes([IsAuthenticated])
 def add_transport_stock(transport_weight, request):
     saved_records = []
-    active_cumulated_balance = CumulativeBalance.objects.filter(is_active=True).first()
+    active_cumulated_balance = BeginningBalance.objects.filter(is_active=True).first()
     for date_key, values in transport_weight.items():
         purchase_weight = float(values.get("purchase_weight", 0))
         transport_weight = float(values.get("transport_weight", 0))
@@ -158,7 +164,7 @@ def add_transport_balance(total_transport_weight, request, issue_date, issue_no)
     3. If not found: create a new record with purchase_weight=0, net_weight=-total_transport_weight
     """
     try:
-        active_cumulated_balance = CumulativeBalance.objects.filter(is_active=True).first()
+        active_cumulated_balance = BeginningBalance.objects.filter(is_active=True).first()
         # Convert issue_date to string if it's not already
         if isinstance(issue_date, datetime):
             issue_date_str = issue_date.strftime("%Y-%m-%d")
@@ -229,93 +235,121 @@ def add_transport_balance(total_transport_weight, request, issue_date, issue_no)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
 def add_beginning_balance(request):
-    if request.method == "POST":
-        data = json.loads(request.body)
-        try:
-            beginning_balance_value = float(data.get("beginning_balance"))
-            active_cumulated_balance = CumulativeBalance.objects.filter(is_active=True).first()
-            if active_cumulated_balance:
-                active_cumulated_balance.is_active = False
-                active_cumulated_balance.save()
+    serializer = BeginningBalanceSerializer(data=request.data)
 
-            beginning_balance_obj = CumulativeBalance.objects.create(
-                beginning_balance=beginning_balance_value,
-                current_balance=beginning_balance_value,
-                is_active=True,
-                created_by=request.user.username,
-                created_at=today,
-                updated_by=request.user.username,
-                updated_at=today
-            )
-            return JsonResponse({
+    if not serializer.is_valid():
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Invalid input",
+                "errors": serializer.errors,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        validated_data = serializer.validated_data
+        beginning_qty = validated_data["beginning_qty"]
+        beginning_value = validated_data["beginning_value"]
+
+        # Use the helper function
+        new_balance = create_beginning_balance(beginning_qty, beginning_value, request.user)
+
+        return JsonResponse(
+            {
                 "result": "success",
                 "message": "Beginning balance added successfully",
                 "content": {
-                    "id": beginning_balance_obj._id,
-                    "beginning_balance": beginning_balance_obj.beginning_balance,
-                    "current_balance": beginning_balance_obj.current_balance,
-                    "is_active": beginning_balance_obj.is_active,
-                    "created_by": beginning_balance_obj.created_by,
-                }
-            }, status=status.HTTP_200_OK)
+                    "id": str(new_balance._id),
+                    "beginning_qty": new_balance.beginning_qty,
+                    "beginning_value": new_balance.beginning_value,
+                    "current_qty": new_balance.current_qty,
+                    "current_value": new_balance.current_value,
+                    "is_active": new_balance.is_active,
+                    "created_by": new_balance.created_by.username if new_balance.created_by else None,
+                },
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
-
-        except Exception as e:
-            logger.error("Error occurred while creating beginning balance: %s", e)
-            return JsonResponse({
+    except Exception as e:
+        logger.error("Error occurred while creating beginning balance: %s", str(e))
+        return JsonResponse(
+            {
                 "result": "error",
                 "message": "Error occurred while creating beginning balance",
-            }, status=status.HTTP_400_BAD_REQUEST)
-    return None
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_active_balance_summary(request):
     try:
-        active_balance = CumulativeBalance.objects.filter(is_active=True, is_deleted=False).first()
-        if not active_balance:
-            return JsonResponse({
-                "result": "success",
-                "message": "No active balance found.",
-                "content": ""
-            }, status=status.HTTP_400_BAD_REQUEST)
+        active_balance = BeginningBalance.objects.filter(
+            is_active=True
+        ).first()
 
-        start_date = datetime.strptime(active_balance.created_at, "%Y-%m-%d")
-        start_date_str = start_date.strftime("%Y-%m-%d")
-        
-        stock_records = StockBalance.objects.filter(
-             weight_date__gte=start_date_str,
-            is_deleted=False
+        if not active_balance:
+            return JsonResponse(
+                {
+                    "result": "success",
+                    "message": "No active balance found.",
+                    "content": {}
+                },
+                status=status.HTTP_200_OK
+            )
+
+        start_date = active_balance.created_at
+
+        stock_records = StockBalance.objects.annotate(
+            weight_date_dt=Cast('weight_date', DateTimeField())
+        ).filter(
+            weight_date_dt__gte=start_date
         ).aggregate(
-            total_purchase=Sum('purchase_weight'),
-            total_transport=Sum('transport_weight')
+            total_purchase=Sum("purchased_qty"),
+            total_purchase_value=Sum("purchased_value"),
+            total_issue=Sum("issued_qty"),
+            total_issue_value=Sum("issue_value")
         )
 
-        total_purchase = stock_records.get('total_purchase') or 0.0
-        total_transport = stock_records.get('total_transport') or 0.0
+        total_purchase = stock_records["total_purchase"] or 0.0
+        total_purchase_value = stock_records["total_purchase_value"] or 0.0
+        total_issue = stock_records["total_issue"] or 0.0
+        total_issue_value = stock_records["total_issue_value"] or 0.0
 
-        response_data = {
-            "result": "success",
-            "active_balance": {
-                "_id": active_balance._id,
-                "created_by": active_balance.created_by,
-                "created_at": active_balance.created_at,
-                "current_balance": active_balance.current_balance,
+        return JsonResponse(
+            {
+                "result": "success",
+                "active_balance": {
+                    "_id": str(active_balance._id),
+                    "created_by": active_balance.created_by.username if active_balance.created_by else None,
+                    "created_at": active_balance.created_at,
+                    "beginning_qty": active_balance.beginning_qty,
+                    "beginning_value": active_balance.beginning_value,
+                    "current_qty": active_balance.current_qty,
+                    "current_value": active_balance.current_value,
+                },
+                "totals": {
+                    "total_purchase_qty": total_purchase,
+                    "total_purchase_value": total_purchase_value,
+                    "total_issued_qty": total_issue,
+                    "total_issued_value": total_issue_value,
+                }
             },
-            "totals": {
-                "total_purchase_weight": total_purchase,
-                "total_transport_weight": total_transport,
-            }
-        }
-
-        return JsonResponse(response_data, status=status.HTTP_200_OK)
+            status=status.HTTP_200_OK
+        )
 
     except Exception as e:
-        logger.error("Error while fetching active balance summary: %s", e)
-        return JsonResponse({
-            "result": "error",
-            "message": "An error occurred while fetching the summary."
-        }, status=status.HTTP_400_BAD_REQUEST)
+        logger.error("Error while fetching active balance summary: %s", str(e))
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "An error occurred while fetching the summary."
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -401,7 +435,7 @@ def generate_stock_report(start_date: str = "", end_date: str = "", report_type:
         }
 
     # Get cumulative balance
-    active = CumulativeBalance.objects.filter(
+    active = BeginningBalance.objects.filter(
         is_active=True, is_deleted=False
     ).first()
 
