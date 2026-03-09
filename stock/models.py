@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime
+
+from django.contrib.auth import get_user_model
 from django.db import models
 
+User = get_user_model()
 # Create your models here.
 class ScrapItemManager(models.Manager):
     def get_queryset(self):
@@ -9,23 +12,52 @@ class ScrapItemManager(models.Manager):
 
 class StockBalance(models.Model):
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    purchase_weight = models.FloatField(max_length=255, default=0.0)
-    transport_weight = models.FloatField(max_length=255, default=0.0)
+
+    # Transaction references
+    grn_no = models.CharField(max_length=255, blank=True)
     issue_no = models.CharField(max_length=255, blank=True)
-    net_weight = models.FloatField(max_length=255, default=0.0)
+
+    # Quantities
+    purchased_qty = models.FloatField(default=0.0)
+    issued_qty = models.FloatField(default=0.0)
+
+    # Prices / Rates
+    avarage_rate = models.FloatField(default=0.0)
+    purchased_value = models.FloatField(default=0.0)
+    issue_value = models.FloatField(default=0.0)
+
+    # Running stock
+    remaining_qty = models.FloatField(default=0.0)
+    remaining_value = models.FloatField(default=0.0)
+
+    # Date info
     weight_date = models.CharField(max_length=255, blank=True)
-    is_deleted = models.BooleanField(default=False)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_at = models.CharField(max_length=255, blank=True)
-    updated_by = models.CharField(max_length=255, blank=True)
-    updated_at = models.CharField(max_length=255, blank=True)
     record_time = models.DateTimeField(auto_now=True)
+    is_deleted = models.BooleanField(default=False)
+
+    # Audit
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="stock_balance_created"
+    )
+    created_at = models.CharField(max_length=255, blank=True)
+    updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="stock_balance_updated"
+    )
+    updated_at = models.CharField(max_length=255, blank=True)
 
     def __str__(self):
-        return self._id
+        return str(self._id)
 
-    objects = ScrapItemManager()  # Only fetch active items
-    all_objects = models.Manager()  # Fetch all items
+    objects = ScrapItemManager()
+    all_objects = models.Manager()
 
     def delete(self, *args, **kwargs):
         self.is_deleted = True
@@ -37,58 +69,47 @@ class StockBalance(models.Model):
         self.updated_at = datetime.today().strftime('%Y-%m-%d')
         self.save()
 
-
-class BalanceHistory(models.Model):
+class BeginningBalance(models.Model):
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    record_no = models.CharField(max_length=255, blank=False)
-    type = models.CharField(max_length=255, blank=False)
+
+    # Quantities
+    beginning_qty = models.FloatField(default=0.0)
+    beginning_value = models.FloatField(default=0.0)
+    current_qty = models.FloatField(default=0.0)
+    current_value = models.FloatField(default=0.0)
+
+    # Status
+    is_active = models.BooleanField(default=True)
     is_deleted = models.BooleanField(default=False)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_at = models.CharField(max_length=255, blank=True)
-    updated_by = models.CharField(max_length=255, blank=True)
-    updated_at = models.CharField(max_length=255, blank=True)
+
+    # Audit with user references
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="beginning_balance_created"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="beginning_balance_updated"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
     record_time = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return self._id
-
-    objects = ScrapItemManager()  # Only fetch active items
-    all_objects = models.Manager()  # Fetch all items
+        return str(self._id)
 
     def delete(self, *args, **kwargs):
         self.is_deleted = True
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
         self.save()
 
     def restore(self):
         self.is_deleted = False
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
-        self.save()
-
-class CumulativeBalance(models.Model):
-    _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    beginning_balance = models.FloatField(max_length=255, default=0.0)
-    current_balance = models.FloatField(max_length=255, default=0.0)
-    is_active = models.BooleanField(default=True) # False when a new beginning record is created
-    is_deleted = models.BooleanField(default=False)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_at = models.CharField(max_length=255, blank=True)
-    updated_by = models.CharField(max_length=255, blank=True)
-    updated_at = models.CharField(max_length=255, blank=True)
-    record_time = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return self._id
-
-    objects = ScrapItemManager()  # Only fetch active items
-    all_objects = models.Manager()  # Fetch all items
-
-    def delete(self, *args, **kwargs):
-        self.is_deleted = True
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
-        self.save()
-
-    def restore(self):
-        self.is_deleted = False
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
         self.save()
