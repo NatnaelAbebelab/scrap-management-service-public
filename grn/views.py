@@ -13,6 +13,7 @@ from helperFunctions.pagination import *
 from helperFunctions.roles import *
 from helperFunctions.status import *
 from helperFunctions.validations import *
+from stock.models import StockBalance
 from stock.services import add_purchase_stock_record
 from utils.exceptions import *
 from utils.permissions import role_required

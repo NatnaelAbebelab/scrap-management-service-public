@@ -1,5 +1,5 @@
 from enum import Enum
 
-class StockOn(Enum):
+class StockBalanceOn(Enum):
     PURCHASE = "purchase"
-    TRANSPORT = "transport"
+    ISSUE = "issue"

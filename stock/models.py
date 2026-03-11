@@ -4,6 +4,8 @@ from datetime import datetime
 from django.contrib.auth import get_user_model
 from django.db import models
 
+from stock.type_enum import StockBalanceOn
+
 User = get_user_model()
 # Create your models here.
 class ScrapItemManager(models.Manager):
@@ -14,6 +16,11 @@ class StockBalance(models.Model):
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # Transaction references
+    transaction_type = models.CharField(
+        max_length=20,
+        choices=[(tag.value, tag.name) for tag in StockBalanceOn],
+        default=StockBalanceOn.PURCHASE.value
+    )
     grn_no = models.CharField(max_length=255, blank=True, null=True)
     record_no = models.CharField(max_length=255, blank=True, null=True)
     issue_no = models.CharField(max_length=255, blank=True, null=True)
