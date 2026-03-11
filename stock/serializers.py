@@ -66,3 +66,7 @@ class StockBalanceAggregatedReportSerializer(serializers.Serializer):
         allow_null=True,
         default="daily"
     )
+
+class StockCardFilterSerializer(serializers.Serializer):
+    start_date = serializers.DateField(required=False, allow_null=True)
+    end_date = serializers.DateField(required=False, allow_null=True)

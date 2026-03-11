@@ -179,3 +179,47 @@ def get_stock_balance_aggregated_service(filters: dict):
     ).order_by("period_group")
 
     return queryset
+
+def generate_stock_card_service(filters: dict):
+    """
+    Generate stock card totals by summing purchase and issue quantities and values
+    between start_date and end_date.
+    Converts weight_date from string to date before filtering using ToDate.
+    """
+    start_date = filters.get("start_date")
+    end_date = filters.get("end_date")
+
+    today = timezone.now().date()
+
+    # Fallback dates if not provided
+    if not end_date:
+        end_date = today
+    if not start_date:
+        start_date = end_date - timedelta(days=60)
+
+    # Base queryset: convert weight_date string to date
+    queryset = StockBalance.objects.annotate(
+        weight_date_dt=ToDate(F("weight_date"))
+    ).filter(
+        weight_date_dt__range=(start_date, end_date)
+    )
+
+    # Aggregate totals
+    totals = queryset.aggregate(
+        total_purchase_qty=Sum("purchased_qty"),
+        total_purchase_value=Sum("purchased_value"),
+        total_issue_qty=Sum("issued_qty"),
+        total_issue_value=Sum("issue_value"),
+    )
+
+    # Ensure 0 instead of None for empty results
+    totals = {k: v or 0 for k, v in totals.items()}
+
+    # Include start and end date in response
+    totals["start_date"] = start_date
+    totals["end_date"] = end_date
+
+    return {
+        "totals": totals,
+        "queryset": queryset
+    }

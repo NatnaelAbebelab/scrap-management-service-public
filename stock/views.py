@@ -14,8 +14,9 @@ from helperFunctions.pagination import stock_balance_pagination
 from helperFunctions.validations import ToDate
 from stock.models import StockBalance, BeginningBalance
 from stock.serializers import BeginningBalanceSerializer, StockBalanceFilterSerializer, \
-    StockBalanceAggregatedReportSerializer
-from stock.services import create_beginning_balance, get_stock_balance_service, get_stock_balance_aggregated_service
+    StockBalanceAggregatedReportSerializer, StockCardFilterSerializer, StockBalanceSerializer
+from stock.services import create_beginning_balance, get_stock_balance_service, get_stock_balance_aggregated_service, \
+    generate_stock_card_service
 from stock.utils.date_format import _default_date_range, parse_date
 from utils.permissions import role_required
 
@@ -410,13 +411,30 @@ def generate_stock_card(start_date: str = "", end_date: str = "") -> dict:
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def get_stock_card(request):
-    data = json.loads(request.body)
-    start_date = data.get("start_date")
-    end_date = data.get("end_date")
+    serializer = StockCardFilterSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    filters = serializer.validated_data
+
     try:
-        report = generate_stock_card(start_date, end_date)
-        return JsonResponse({"result": "success", "message": "Stock card is generated successfully.", "content": report}, status=200)
-    except ValueError as e:
-        logger.error("Error occurred while generating stock card: %s", e)
-        return JsonResponse({"result": "error", 'message': "Error occurred while generating stock card."}, status=400)
+        result = generate_stock_card_service(filters)
+        totals = result["totals"]
+        queryset = result["queryset"]
+
+        serializer = StockBalanceSerializer(queryset, many=True)
+
+        return JsonResponse({
+            "result": "success",
+            "message": "Stock card generated successfully.",
+            "content": {
+                "totals": totals,
+                "stock_card": serializer.data
+            }
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error("Error generating stock card: %s", e)
+        return JsonResponse({
+            "result": "error",
+            "message": "An error occurred while generating stock card."
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
