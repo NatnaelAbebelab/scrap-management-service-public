@@ -1,7 +1,8 @@
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Sum
+from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
 from django.utils import timezone
 
 from helperFunctions.validations import ToDate
@@ -123,5 +124,58 @@ def get_stock_balance_service(filters: dict):
 
     elif balance_type == StockBalanceOn.ISSUE.value:
         queryset = queryset.filter(transaction_type=StockBalanceOn.ISSUE.value)
+
+    return queryset
+
+def get_stock_balance_aggregated_service(filters: dict):
+    """
+    Fetch aggregated stock balance report by period.
+    Periods: daily (default), weekly, monthly, quarterly, yearly
+    Aggregates: purchased_qty, purchased_value, issued_qty, issued_value
+    """
+    start_date = filters.get("start_date")
+    end_date = filters.get("end_date")
+    balance_type = filters.get("type")
+    period = filters.get("period", "daily")
+
+    today = timezone.now().date()
+    if not end_date:
+        end_date = today
+    if not start_date:
+        start_date = end_date - timedelta(days=60)
+
+    # Base queryset
+    queryset = StockBalance.objects.annotate(
+        weight_date_dt=ToDate(F("weight_date"))
+    ).filter(
+        weight_date_dt__range=(start_date, end_date)
+    )
+
+    # Apply type filter
+    if balance_type == StockBalanceOn.PURCHASE.value:
+        queryset = queryset.filter(transaction_type=StockBalanceOn.PURCHASE.value)
+    elif balance_type == StockBalanceOn.ISSUE.value:
+        queryset = queryset.filter(transaction_type=StockBalanceOn.ISSUE.value)
+
+    # Truncate by period
+    if period == "daily":
+        trunc_func = TruncDay("weight_date_dt")
+    elif period == "weekly":
+        trunc_func = TruncWeek("weight_date_dt")
+    elif period == "monthly":
+        trunc_func = TruncMonth("weight_date_dt")
+    elif period == "quarterly":
+        trunc_func = TruncQuarter("weight_date_dt")
+    elif period == "yearly":
+        trunc_func = TruncYear("weight_date_dt")
+    else:
+        trunc_func = TruncDay("weight_date_dt")  # default daily
+
+    queryset = queryset.annotate(period_group=trunc_func).values("period_group").annotate(
+        total_purchase=Sum("purchased_qty"),
+        total_purchase_value=Sum("purchased_value"),
+        total_issue=Sum("issued_qty"),
+        total_issue_value=Sum("issue_value"),
+    ).order_by("period_group")
 
     return queryset

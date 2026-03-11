@@ -51,3 +51,18 @@ class StockBalanceSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at"
         ]
+
+class StockBalanceAggregatedReportSerializer(serializers.Serializer):
+    start_date = serializers.DateField(required=False, allow_null=True)
+    end_date = serializers.DateField(required=False, allow_null=True)
+    type = serializers.ChoiceField(
+        choices=[e.value for e in StockBalanceOn],
+        required=False,
+        allow_null=True
+    )
+    period = serializers.ChoiceField(
+        choices=["daily", "weekly", "monthly", "quarterly", "yearly"],
+        required=False,
+        allow_null=True,
+        default="daily"
+    )
