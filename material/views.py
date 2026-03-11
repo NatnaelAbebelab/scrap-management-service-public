@@ -8,13 +8,18 @@ from rest_framework import status
 from rest_framework.decorators import permission_classes, api_view
 from rest_framework.permissions import IsAuthenticated
 
-from helperFunctions.pagination import material_requisition_pagination, raw_material_issue_pagination, melting_plants_pagination
+from helperFunctions.pagination import material_requisition_pagination, raw_material_issue_pagination, \
+    melting_plants_pagination
 from material.enums import Plants, RequisitionStatus, IssueStatus
-from material.report import MaterialRequisitionFilter, RawMaterialIssueFilter
 from material.models import MaterialRequisition, MaterialRequisitionItem, RawMaterialIssue, MeltingPlants
-from material.serializers import MaterialRequisitionSerializer, RawMaterialIssueSerializer, ApprovedMaterialRequisitionSerializer, MeltingPlantsSerializer
-from stock.models import BeginningBalance
+from material.report import MaterialRequisitionFilter, RawMaterialIssueFilter
+from material.serializers import MaterialRequisitionSerializer, RawMaterialIssueSerializer, \
+    ApprovedMaterialRequisitionSerializer, MeltingPlantsSerializer, MeltingPlantCreateSerializer, \
+    MeltingPlantUpdateSerializer, MaterialRequisitionCreateSerializer, MaterialRequisitionFilterSerializer
+from material.services import create_melting_plant, update_melting_plant, create_material_requisition, \
+    get_filtered_material_requisitions
 from stock.views import add_transport_balance
+from utils.permissions import role_required
 
 # Create your views here.
 logger = logging.getLogger(__name__)
@@ -32,150 +37,194 @@ def get_melting_plants(request):
 
         serialized_melting_plants = melting_plants_pagination(request, melting_plants)
 
-        return JsonResponse({"result": "success", "message": "fetched successfully", "content": serialized_melting_plants.data}, status=status.HTTP_200_OK)
+        return JsonResponse({
+            "result": "success",
+            "message": "fetched successfully",
+            "content": serialized_melting_plants.data
+        }, status=status.HTTP_200_OK)
+
     except Exception as e:
+        logger.error(f"Error occurred while fetching melting plants: {e}")
+
         return JsonResponse({
             "result": "error",
             "data": e
-        }, status=status.HTTP_400_BAD_REQUEST)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
 def add_melting_plant(request):
     """
-    Expected request.data format:
-    {
-        "plant": "OLD_PLANT",
-    }
+    Create Melting Plant
     """
+
+    serializer = MeltingPlantCreateSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
     try:
-        user = request.user
-        data = request.data
-
-        plant_value = data.get("plant")
-        # Ensure the value is valid
-        if not plant_value:
-            return JsonResponse({"result": "error", "message": "plant is required", "content": ""}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Create Melting Plant
-        melting_plant = MeltingPlants.objects.create(
-            plant_name=plant_value,
-            created_by=user.username,
-            created_by_id=user,
-            created_at=today,
-            updated_at=today,
+        melting_plant = create_melting_plant(
+            serializer.validated_data,
+            request.user
         )
-        melting_plant.save()
-        serialized_melting_plant = MeltingPlantsSerializer(melting_plant)
 
-        return JsonResponse({
-            "result": "success",
-            "message": "Melting plant is created successfully",
-            "content": serialized_melting_plant.data
-        }, status=status.HTTP_201_CREATED)
+        response_serializer = MeltingPlantsSerializer(melting_plant)
+
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Melting plant created successfully",
+                "content": response_serializer.data
+            },
+            status=status.HTTP_201_CREATED
+        )
 
     except Exception as e:
-        return JsonResponse({
-            "result": "error",
-            "message": "Error occurred while creating melting plant",
-            "content": str(e)},
-            status=status.HTTP_400_BAD_REQUEST)
+        logger.error(f"Error creating melting plant: {e}")
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error occurred while creating melting plant",
+                "content": str(e)
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @api_view(['PUT'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
 def edit_melting_plant(request):
     """
-        Expected request.data format:
-        {
-            "_id": "3f2f1a4c-9416-4a0a-8ae4-859e7e45ac7c",
-            "new_name": "OLD_PLANT",
-        }
+    Edit existing melting plant
+
+    Expected request.data:
+    {
+        "_id": "uuid",
+        "new_name": "NEW_PLANT"
+    }
     """
+
+    serializer = MeltingPlantUpdateSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
     try:
-        data = request.data
-        user = request.user
+        melting_plant = update_melting_plant(
+            serializer.validated_data["_id"],
+            serializer.validated_data,
+            request.user
+        )
 
-        melting_plant_id = data.get("_id")
-        if not melting_plant_id:
-            return JsonResponse({"result": "error", "message": "_id is required", "content": ""}, status=status.HTTP_400_BAD_REQUEST)
+        if not melting_plant:
+            return JsonResponse(
+                {
+                    "result": "error",
+                    "message": "Melting plant not found",
+                    "content": ""
+                }, status=status.HTTP_404_NOT_FOUND
+            )
 
-        # Fetch existing melting plant
-        melting_plant = MeltingPlants.objects.get(_id=melting_plant_id)
+        response_serializer = MeltingPlantsSerializer(melting_plant)
 
-        # Update main fields
-        assign_if_not_empty(melting_plant, "plant_name", data.get("new_name"))
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Melting plant updated successfully",
+                "content": response_serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
 
-        melting_plant.updated_by = user.username
-        melting_plant.updated_by_id = user
-        melting_plant.updated_at = today
-        melting_plant.save()
-        serialized_melting_plant = MeltingPlantsSerializer(melting_plant)
-
-        return JsonResponse({
-            "result": "success",
-            "message": "Melting plant is updated successfully",
-            "content": serialized_melting_plant.data
-        }, status=status.HTTP_200_OK)
-
-    except MeltingPlants.DoesNotExist:
-            return JsonResponse({
-                "result": "error",
-                "message": "Melting plant is not found",
-                "content": ""
-            }, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return JsonResponse({
-            "result": "error",
-            "message": "Error occurred while updating melting plant",
-            "content": str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
+        logger.error(f"Error updating melting plant: {e}")
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error occurred while updating melting plant",
+                "content": str(e)
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
 def delete_melting_plant(request, melting_plant_id):
     try:
         melting_plant_id = get_object_or_404(MeltingPlants.objects, _id=melting_plant_id)
         melting_plant_id.delete()
 
-        return JsonResponse({"result": "success", "message": "Melting plant is deleted successfully", "content": ""},
-                            status=status.HTTP_200_OK)
+        return JsonResponse({
+            "result": "success",
+            "message": "Melting plant is deleted successfully",
+            "content": ""
+        }, status=status.HTTP_200_OK)
 
     except Http404:
-        return JsonResponse({"result": "error", "message": "Melting plant is not found"}, status=status.HTTP_404_NOT_FOUND)
+        return JsonResponse({
+            "result": "error",
+            "message": "Melting plant is not found"
+        }, status=status.HTTP_404_NOT_FOUND)
+
     except Exception as e:
-        return JsonResponse({"result": "error", "message": "Error occurred while deleting melting plant", "content": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        logger.error(f"Error deleting melting plant: {e}")
+        return JsonResponse({
+            "result": "error",
+            "message": "Error occurred while deleting melting plant",
+            "content": str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_material_requisitions(request):
+    serializer = MaterialRequisitionFilterSerializer(data=request.query_params)
+    serializer.is_valid(raise_exception=True)
+    filters = serializer.validated_data
+
     try:
-        user = request.user
-        material_requisitions = MaterialRequisition.objects.filter(
-            created_by_id=user,
-            is_deleted=False
-        ).order_by('-record_time')
+        requisitions = get_filtered_material_requisitions(filters)
+        serialized = material_requisition_pagination(request, requisitions)
 
-        serialized_requisition = material_requisition_pagination(request, material_requisitions)
-
-        return JsonResponse({"result": "success", "message": "fetched successfully", "content": serialized_requisition.data}, status=status.HTTP_200_OK)
-    except Exception as e:
         return JsonResponse({
-            "result": "error",
-            "data": e
-        }, status=status.HTTP_400_BAD_REQUEST)
+            "result": "success",
+            "message": "Fetched successfully",
+            "content": serialized.data
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error(f"Error fetching material requisitions: {e}")
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error fetching requisitions",
+                "content": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def get_material_requisition(request, requisition_id):
     try:
         requisition = get_object_or_404(MaterialRequisition, _id=requisition_id, is_deleted=False)
         serializer = MaterialRequisitionSerializer(requisition)
-        return JsonResponse({"result": "success", "message": "fetched successfully", "content": serializer.data}, status=status.HTTP_200_OK)
+
+        return JsonResponse({
+            "result": "success",
+            "message": "fetched successfully",
+            "content": serializer.data
+        }, status=status.HTTP_200_OK)
 
     except Http404:
-        return JsonResponse({"result": "error", "message": "Resource not found"}, status=status.HTTP_404_NOT_FOUND)
+        return JsonResponse({
+            "result": "error",
+            "message": "Resource not found"
+        }, status=status.HTTP_404_NOT_FOUND)
+
     except Exception as e:
+        logger.error(f"Error fetching material requisition: {e}")
+
         return JsonResponse(
-            {"result": "error", "message": "An error occurred", "error": str(e)},
+            {
+                "result": "error",
+                "message": "An error occurred",
+                "content": str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
@@ -195,90 +244,48 @@ def get_approved_material_requisitions(request):
     }, status=status.HTTP_200_OK)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
 def add_material_requisition(request):
     """
-    Expected request.data format:
-    {
-        "plant": "3f2f1a4c-9416-4a0a-8ae4-859e7e45ac7c",
-        "requisition_date": "2025-11-25",
-        "requisition_no": "REQ-001",
-        "items": [
-            {"item_code": "IT001", "item_name": "Item 1", "quantity": 5, "unit_price": 10.5},
-            {"item_code": "IT002", "item_name": "Item 2", "quantity": 2, "unit_price": 20.0}
-        ]
-    }
+    Add a new material requisition
     """
+
+    serializer = MaterialRequisitionCreateSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
     try:
-        user = request.user
-        data = request.data
+        requisition = create_material_requisition(serializer.validated_data, request.user)
 
-        plant = data.get("plant")
-        # Ensure the value is valid
-        if not plant:
-            return JsonResponse({"result": "error", "message": "Melting plant is required", "content": ""}, status=status.HTTP_400_BAD_REQUEST)
+        response_serializer = MaterialRequisitionSerializer(requisition)
 
-        active_balance = BeginningBalance.objects.filter(is_active=True, is_deleted=False).first()
-        current_balance = float(active_balance.current_balance) if active_balance.current_balance else 0.0
-
-        melting_plant = get_object_or_404(MeltingPlants, _id=plant)
-        # Create Material Requisition
-        requisition = MaterialRequisition.objects.create(
-            melting_plant=melting_plant,
-            requisition_date=data.get("requisition_date"),
-            requisition_no=data.get("requisition_no"),
-            created_by=user.username,
-            created_by_id=user,
-            created_at=today,
-            updated_at=today,
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Material requisition created successfully",
+                "content": response_serializer.data
+            },
+            status=status.HTTP_201_CREATED
         )
 
-        total_requisition_quantity = 0
-        total_requisition_price = 0
-        items_data = data.get("items", [])
-        for item_data in items_data:
-            quantity = float(item_data.get("quantity", 0))
-            unit_price = float(item_data.get("unit_price", 0))
-            total_price = quantity * unit_price
-            total_requisition_quantity += quantity
+    except ValueError as ve:
+        logger.error(f"Error creating material requisition: {ve}")
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": str(ve),
+                "content": ""
+            }, status=status.HTTP_400_BAD_REQUEST
+        )
 
-            if total_requisition_quantity > current_balance:
-                return JsonResponse({
-                    "result": "error",
-                    "message": "Total requisition quantity exceeds the current balance",
-                    "content": ""
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            MaterialRequisitionItem.objects.create(
-                material_requisition=requisition,
-                item_code=item_data.get("item_code"),
-                item_name=item_data.get("item_name"),
-                quantity=quantity,
-                unit_price=unit_price,
-                total_price=total_price
-            )
-            total_requisition_price += total_price
-
-        # Update total requisition
-        requisition.total_requisition_quantity = total_requisition_quantity
-        requisition.total_requisition_price = total_requisition_price
-        requisition.save()
-
-        serialized_requisition = MaterialRequisitionSerializer(requisition)
-
-        return JsonResponse({
-            "result": "success",
-            "message": "Material requisition created successfully",
-            "content": serialized_requisition.data
-        }, status=status.HTTP_201_CREATED)
-
-    except Http404:
-        return JsonResponse({"result": "error", "message": "Melting plant not found", "content": ""}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
-        return JsonResponse({
-            "result": "error",
-            "data": str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
+        logger.error(f"Error creating material requisition: {e}")
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error occurred while creating requisition",
+                "content": str(e)
+            }, status=status.HTTP_400_BAD_REQUEST
+        )
 
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated])

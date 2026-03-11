@@ -1,4 +1,4 @@
-from django.db.models import DateTimeField, Func, CharField, Value
+from django.db.models import DateTimeField, Func, CharField, Value, DateField
 from datetime import datetime
 import uuid, re
 
@@ -11,6 +11,14 @@ class ToFormalDate(Func):
     function = 'TO_DATE'
     template = "%(function)s(%(expressions)s, 'YYYY-MM-DD')"
     output_field = DateTimeField()
+
+class CastToDate(Func):
+    """
+    Helper to cast string fields to DateField for filtering.
+    """
+    function = "DATE"
+    template = "%(function)s(%(expressions)s)"
+    output_field = DateField()
 
 class StrToDate(Func):
     """Convert string to DATE format in Django ORM"""

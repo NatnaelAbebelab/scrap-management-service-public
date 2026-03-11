@@ -1,6 +1,29 @@
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 
-from material.models import MaterialRequisitionItem, MaterialRequisition, RawMaterialIssue, MeltingPlants
+from .models import MaterialRequisitionItem, MaterialRequisition, RawMaterialIssue, MeltingPlants
+
+class MeltingPlantCreateSerializer(serializers.Serializer):
+    plant = serializers.CharField(
+        source="plant_name",
+        max_length=255,
+        validators=[
+            UniqueValidator(
+                queryset=MeltingPlants.objects.all(),
+                message="Melting plant already exists"
+            )
+        ]
+    )
+
+    def validate_plant(self, value):
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                "Plant name cannot be empty"
+            )
+
+        return value
 
 class MeltingPlantsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -9,6 +32,48 @@ class MeltingPlantsSerializer(serializers.ModelSerializer):
             "_id",
             "plant_name",
         ]
+
+class MeltingPlantUpdateSerializer(serializers.Serializer):
+    _id = serializers.UUIDField(required=True)
+    new_name = serializers.CharField(
+        source="plant_name",
+        max_length=255,
+        validators=[
+            UniqueValidator(
+                queryset=MeltingPlants.objects.all(),
+                message="Melting plant already exists"
+            )
+        ],
+        allow_null=False
+    )
+
+    def validate_new_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Plant name cannot be empty")
+        return value
+
+class MaterialRequisitionItemRequestSerializer(serializers.Serializer):
+    item_code = serializers.CharField(max_length=50)
+    item_name = serializers.CharField(max_length=255)
+    quantity = serializers.FloatField(min_value=0.01)
+    unit_price = serializers.FloatField(min_value=0.0)
+
+class MaterialRequisitionCreateSerializer(serializers.Serializer):
+    plant = serializers.UUIDField()
+    requisition_date = serializers.DateField()
+    requisition_no = serializers.CharField(max_length=50)
+    items = MaterialRequisitionItemRequestSerializer(many=True)
+
+    def validate_plant(self, value):
+        if not MeltingPlants.objects.filter(_id=value).exists():
+            raise serializers.ValidationError("Melting plant not found")
+        return value
+
+    def validate_items(self, items):
+        if not items:
+            raise serializers.ValidationError("At least one item is required")
+        return items
 
 class MaterialRequisitionItemSerializer(serializers.ModelSerializer):
     class Meta:
@@ -44,6 +109,20 @@ class MaterialRequisitionSerializer(serializers.ModelSerializer):
             "updated_at",
             "items",
         ]
+
+class MaterialRequisitionFilterSerializer(serializers.Serializer):
+    plant = serializers.UUIDField(required=False, allow_null=True)
+    start_date = serializers.DateField(required=False, allow_null=True, format="%Y-%m-%d")
+    end_date = serializers.DateField(required=False, allow_null=True, format="%Y-%m-%d")
+    requisition_no = serializers.CharField(required=False, max_length=255, allow_null=True)
+    status = serializers.CharField(required=False, max_length=50, allow_null=True)
+
+    def validate(self, data):
+        start = data.get("start_date")
+        end = data.get("end_date")
+        if start and end and start > end:
+            raise serializers.ValidationError("start_date cannot be after end_date")
+        return data
 
 class RawMaterialIssueSerializer(serializers.ModelSerializer):
     requisition_no = serializers.CharField(source='material_requisition.requisition_no', read_only=True)
