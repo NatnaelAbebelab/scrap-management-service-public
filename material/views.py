@@ -11,13 +11,14 @@ from rest_framework.permissions import IsAuthenticated
 from helperFunctions.pagination import material_requisition_pagination, raw_material_issue_pagination, \
     melting_plants_pagination
 from material.enums import Plants, RequisitionStatus, IssueStatus
-from material.models import MaterialRequisition, MaterialRequisitionItem, RawMaterialIssue, MeltingPlants
+from material.models import MaterialRequisition, RawMaterialIssue, MeltingPlants
 from material.report import MaterialRequisitionFilter, RawMaterialIssueFilter
 from material.serializers import MaterialRequisitionSerializer, RawMaterialIssueSerializer, \
     ApprovedMaterialRequisitionSerializer, MeltingPlantsSerializer, MeltingPlantCreateSerializer, \
-    MeltingPlantUpdateSerializer, MaterialRequisitionCreateSerializer, MaterialRequisitionFilterSerializer
+    MeltingPlantUpdateSerializer, MaterialRequisitionCreateSerializer, MaterialRequisitionFilterSerializer, \
+    MaterialRequisitionEditSerializer
 from material.services import create_melting_plant, update_melting_plant, create_material_requisition, \
-    get_filtered_material_requisitions
+    get_filtered_material_requisitions, update_material_requisition
 from stock.views import add_transport_balance
 from utils.permissions import role_required
 
@@ -231,12 +232,12 @@ def get_material_requisition(request, requisition_id):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_approved_material_requisitions(request):
-    approved_reqs = MaterialRequisition.objects.filter(
-        requisition_status=RequisitionStatus.APPROVED.value,
-        is_deleted=False
+    approved_requisitions = MaterialRequisition.objects.filter(
+        requisition_status=RequisitionStatus.APPROVED.value
     ).order_by('-record_time')
 
-    serializer = ApprovedMaterialRequisitionSerializer(approved_reqs, many=True)
+    serializer = ApprovedMaterialRequisitionSerializer(approved_requisitions, many=True)
+
     return JsonResponse({
         "result": "success",
         "message": "Approved material requisitions loaded successfully",
@@ -291,109 +292,58 @@ def add_material_requisition(request):
 @permission_classes([IsAuthenticated])
 def edit_material_requisition(request):
     """
-        Expected request.data format:
-        {
-            "_id": "3f2f1a4c-9416-4a0a-8ae4-859e7e45ac7c",
-            "plant": "3f2f1a4c-9416-4a0a-8ae4-859e7e45ac7c",
-            "requisition_date": "2025-11-25",
-            "requisition_no": "REQ-001",
-            "items": [
-                {"item_code": "IT001", "item_name": "Item 1", "quantity": 5, "unit_price": 10.5},
-                {"item_code": "IT002", "item_name": "Item 2", "quantity": 2, "unit_price": 20.0}
-            ]
-        }
+    Expected request.data format:
+    {
+        "_id": "<requisition_uuid>",
+        "plant": "<melting_plant_uuid>",
+        "requisition_date": "YYYY-MM-DD",
+        "requisition_no": "REQ-001",
+        "items": [
+            {"_id": "<item_uuid>", "item_code": "IT001", "item_name": "Item 1", "quantity": 5, "unit_price": 10.5},
+            {"item_code": "IT002", "item_name": "Item 2", "quantity": 2, "unit_price": 20.0}
+        ]
+    }
+
+    Only non-null and non-blank fields are updated.
+    Items can be updated, created, or deleted.
     """
+    serializer = MaterialRequisitionEditSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    validated_data = serializer.validated_data
+
     try:
-        data = request.data
-        user = request.user
+        requisition = update_material_requisition(request.user, validated_data)
+        serialized = MaterialRequisitionSerializer(requisition)
 
-        requisition_id = data.get("_id")
-        plant = data.get("plant")
-        if not requisition_id:
-            return JsonResponse({"result": "error", "message": "_id is required", "content": ""}, status=status.HTTP_400_BAD_REQUEST)
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Material requisition updated successfully",
+                "content": serialized.data
+            },
+            status=status.HTTP_200_OK
+        )
 
-        # Fetch existing requisition
-        requisition = MaterialRequisition.objects.get(_id=requisition_id, is_deleted=False)
-        # Update main fields
-        assign_if_not_empty(requisition, "requisition_date", data.get("requisition_date"))
-        assign_if_not_empty(requisition, "requisition_no", data.get("requisition_no"))
-
-        if plant:
-            melting_plant = get_object_or_404(MeltingPlants, _id=plant)
-            requisition.melting_plant = melting_plant
-
-        requisition.updated_by = user.username
-        requisition.updated_by_id = user
-        requisition.updated_at = today
-        requisition.save()
-
-        # Handle items update
-        received_items = data.get("items", [])
-        existing_items = {str(i._id): i for i in requisition.items.all()}
-
-        new_total = 0
-        received_ids = []
-
-        for item_data in received_items:
-            item_id = item_data.get("_id")
-
-            quantity = float(item_data.get("quantity", 0))
-            unit_price = float(item_data.get("unit_price", 0))
-            total_price = quantity * unit_price
-
-            # Update existing item
-            if item_id and item_id in existing_items:
-                item = existing_items[item_id]
-                item.item_code = item_data.get("item_code", item.item_code)
-                item.item_name = item_data.get("item_name", item.item_name)
-                item.quantity = quantity
-                item.unit_price = unit_price
-                item.total_price = total_price
-                item.save()
-
-                received_ids.append(item_id)
-
-            else:
-                # Create a new item
-                MaterialRequisitionItem.objects.create(
-                    material_requisition=requisition,
-                    item_code=item_data.get("item_code", ""),
-                    item_name=item_data.get("item_name", ""),
-                    quantity=quantity,
-                    unit_price=unit_price,
-                    total_price=total_price
-                )
-
-            new_total += total_price
-
-        # Delete removed items
-        for item_id, item in existing_items.items():
-            if item_id not in received_ids:
-                item.delete()
-
-        # Update total requisition
-        requisition.total_requisition = new_total
-        requisition.save()
-
-        serialized_requisition = MaterialRequisitionSerializer(requisition)
-
-        return JsonResponse({
-            "result": "success",
-            "message": "Material requisition updated successfully",
-            "content": serialized_requisition.data
-        }, status=status.HTTP_200_OK)
-
-    except MaterialRequisition.DoesNotExist:
-            return JsonResponse({
+    except Http404 as e:
+        return JsonResponse(
+            {
                 "result": "error",
-                "message": "Material requisition not found",
-                "content": ""
-            }, status=status.HTTP_404_NOT_FOUND)
+                "message": "Resource not found",
+                "content": str(e)
+            },
+            status=status.HTTP_404_NOT_FOUND
+        )
+
     except Exception as e:
-        return JsonResponse({
-            "result": "error",
-            "message": str(e)
-        }, status=status.HTTP_400_BAD_REQUEST)
+        logger.error(f"Error updating material requisition: {e}")
+
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": str(e)
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
@@ -403,63 +353,69 @@ def approve_material_requisition(request, requisition_id):
         requisition.requisition_status = RequisitionStatus.APPROVED.value
         requisition.updated_by = request.user.username
         requisition.updated_by_id = request.user
-        requisition.updated_at = today
         requisition.save()
 
         serialized_requisition = MaterialRequisitionSerializer(requisition)
 
-        return JsonResponse({"result": "success", "message": "Material requisition approved successfully", "content": serialized_requisition.data},
-                            status=status.HTTP_200_OK)
+        return JsonResponse({
+            "result": "success",
+            "message": "Material requisition approved successfully",
+            "content": serialized_requisition.data
+        }, status=status.HTTP_200_OK)
 
     except MaterialRequisition.DoesNotExist:
-        return JsonResponse({"result": "error", "message": "Material requisition not found"}, status=status.HTTP_404_NOT_FOUND)
+        return JsonResponse({
+            "result": "error",
+            "message": "Material requisition not found"
+        }, status=status.HTTP_404_NOT_FOUND)
+
     except Exception as e:
-        return JsonResponse({"result": "error", "message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        logger.error(f"Error approving material requisition: {e}")
+
+        return JsonResponse({
+            "result": "error",
+            "message": str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['DELETE'])
 @permission_classes([IsAuthenticated])
+@transaction.atomic
 def delete_material_requisition(request, requisition_id):
-    with transaction.atomic():
-        try:
-            user = request.user
-            requisition = get_object_or_404(MaterialRequisition.objects, _id=requisition_id)
+    try:
+        requisition = get_object_or_404(MaterialRequisition.objects, _id=requisition_id)
 
-            #Check if there is atleast one approved issue for the requisition
-            approved_issues = RawMaterialIssue.objects.filter(
-                material_requisition=requisition,
-                is_deleted=False,
-                issue_status=IssueStatus.APPROVED.value
-            )
-            if approved_issues.exists():
-                return JsonResponse({
-                    "result": "error",
-                    "message": "Cannot delete requisition with approved issues",
-                    "approved_issue_count": approved_issues.count()
-                }, status=status.HTTP_400_BAD_REQUEST)
+        issues = RawMaterialIssue.objects.filter(
+            material_requisition=requisition
+        ).all()
 
-            # Change the issue weight of all non-approved issues, which is in turn all issues are either new or issued
-            all_issues = RawMaterialIssue.objects.filter(
-                material_requisition=requisition,
-                is_deleted=False
-            )
-            if all_issues.exists():
-                all_issues.update(
-                    issue_weight=0.0,
-                    material_requisition=None,
-                    updated_by=user.username,
-                    updated_by_id=user,
-                    updated_at=today
-                )
+        if issues.exists():
+            return JsonResponse({
+                "result": "error",
+                "message": "There are material issues associated with this requisition. Please delete the issues first.",
+                "issues_count": issues.count()
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-            requisition.delete()
+        requisition.delete()
 
-            return JsonResponse({"result": "success", "message": "Material requisition is deleted successfully", "content": ""},
-                                status=status.HTTP_200_OK)
+        return JsonResponse({
+            "result": "success",
+            "message": "Material requisition is deleted successfully",
+            "content": ""
+        }, status=status.HTTP_200_OK)
 
-        except Http404:
-            return JsonResponse({"result": "error", "message": "Material requisition not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            return JsonResponse({"result": "error", "message": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    except Http404:
+        return JsonResponse({
+            "result": "error",
+            "message": "Material requisition not found"
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    except Exception as e:
+        logger.error(f"Error deleting material requisition: {e}")
+
+        return JsonResponse({
+            "result": "error",
+            "message": str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
