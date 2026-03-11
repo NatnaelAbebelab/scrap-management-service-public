@@ -53,7 +53,7 @@ class MeltingPlantUpdateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Plant name cannot be empty")
         return value
 
-class MaterialRequisitionItemRequestSerializer(serializers.Serializer):
+class MaterialRequisitionItemAddRequestSerializer(serializers.Serializer):
     item_code = serializers.CharField(max_length=50)
     item_name = serializers.CharField(max_length=255)
     quantity = serializers.FloatField(min_value=0.01)
@@ -63,7 +63,7 @@ class MaterialRequisitionCreateSerializer(serializers.Serializer):
     plant = serializers.UUIDField()
     requisition_date = serializers.DateField()
     requisition_no = serializers.CharField(max_length=50)
-    items = MaterialRequisitionItemRequestSerializer(many=True)
+    items = MaterialRequisitionItemAddRequestSerializer(many=True)
 
     def validate_plant(self, value):
         if not MeltingPlants.objects.filter(_id=value).exists():
@@ -124,6 +124,25 @@ class MaterialRequisitionFilterSerializer(serializers.Serializer):
             raise serializers.ValidationError("start_date cannot be after end_date")
         return data
 
+class MaterialRequisitionItemUpdateRequestSerializer(serializers.Serializer):
+    _id = serializers.UUIDField(required=False)  # for existing items
+    item_code = serializers.CharField(max_length=255)
+    item_name = serializers.CharField(max_length=255)
+    quantity = serializers.FloatField()
+    unit_price = serializers.FloatField()
+
+class MaterialRequisitionEditSerializer(serializers.Serializer):
+    _id = serializers.UUIDField()
+    plant = serializers.UUIDField(required=False, allow_null=True)
+    requisition_date = serializers.DateField(required=False, allow_null=True, format="%Y-%m-%d")
+    requisition_no = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    items = MaterialRequisitionItemUpdateRequestSerializer(many=True)
+
+class ApprovedMaterialRequisitionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MaterialRequisition
+        fields = ['_id', 'requisition_no', 'requisition_date', 'total_requisition_quantity']
+
 class RawMaterialIssueSerializer(serializers.ModelSerializer):
     requisition_no = serializers.CharField(source='material_requisition.requisition_no', read_only=True)
     total_requisition_quantity = serializers.CharField(source='material_requisition.total_requisition_quantity', read_only=True)
@@ -147,8 +166,3 @@ class RawMaterialIssueSerializer(serializers.ModelSerializer):
             "updated_at",
             "is_deleted",
         ]
-
-class ApprovedMaterialRequisitionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = MaterialRequisition
-        fields = ['_id', 'requisition_no', 'requisition_date', 'total_requisition_quantity']

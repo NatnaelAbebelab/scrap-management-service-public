@@ -10,6 +10,12 @@ from helperFunctions.validations import CastToDate
 from material.models import MeltingPlants, MaterialRequisition, MaterialRequisitionItem
 from stock.models import BeginningBalance
 
+def assign_if_not_empty(obj, field_name, value):
+    """
+    Helper to update a field only if the value is not None or blank.
+    """
+    if value is not None and value != "":
+        setattr(obj, field_name, value)
 
 def create_melting_plant(validated_data, user):
     """
@@ -149,3 +155,85 @@ def get_filtered_material_requisitions(filters):
         requisitions = requisitions.filter(requisition_status=status)
 
     return requisitions
+
+@transaction.atomic
+def update_material_requisition(user, validated_data):
+    """
+    Updates a material requisition and its items.
+
+    Only updates fields/items that are provided (not None or blank).
+    """
+    requisition_id = validated_data["_id"]
+    plant_uuid = validated_data.get("plant")
+    requisition_date = validated_data.get("requisition_date")
+    requisition_no = validated_data.get("requisition_no")
+    items_data = validated_data.get("items", [])
+
+    try:
+        # Fetch the requisition
+        requisition = get_object_or_404(MaterialRequisition, _id=requisition_id, is_deleted=False)
+
+        # Update main fields if provided
+        assign_if_not_empty(requisition, "requisition_date", requisition_date)
+        assign_if_not_empty(requisition, "requisition_no", requisition_no)
+
+        if plant_uuid:
+            melting_plant = get_object_or_404(MeltingPlants, _id=plant_uuid)
+            requisition.melting_plant = melting_plant
+
+        requisition.updated_by = user.username
+        requisition.updated_by_id = user
+        requisition.save()
+
+        # --- Handle items ---
+        existing_items = {str(i._id): i for i in requisition.items.all()}
+        received_ids = set()
+        total_quantity = 0
+        total_price = 0
+
+        for item_data in items_data:
+            item_id = str(item_data.get("_id")) if item_data.get("_id") else None
+            quantity = float(item_data.get("quantity", 0))
+            unit_price = float(item_data.get("unit_price", 0))
+            total_item_price = quantity * unit_price
+
+            # Update existing item
+            if item_id and item_id in existing_items:
+                item = existing_items[item_id]
+                assign_if_not_empty(item, "item_code", item_data.get("item_code"))
+                assign_if_not_empty(item, "item_name", item_data.get("item_name"))
+                assign_if_not_empty(item, "quantity", quantity)
+                assign_if_not_empty(item, "unit_price", unit_price)
+                assign_if_not_empty(item, "total_price", total_item_price)
+                item.save()
+                received_ids.add(item_id)
+            else:
+                # Create a new item
+                MaterialRequisitionItem.objects.create(
+                    material_requisition=requisition,
+                    item_code=item_data.get("item_code", ""),
+                    item_name=item_data.get("item_name", ""),
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    total_price=total_item_price
+                )
+
+            total_quantity += quantity
+            total_price += total_item_price
+
+        # Delete removed items
+        for item_id, item in existing_items.items():
+            if item_id not in received_ids:
+                item.delete()
+
+        # Update totals
+        requisition.total_requisition_quantity = total_quantity
+        requisition.total_requisition_price = total_price
+        requisition.save()
+
+        return requisition
+
+    except Http404:
+        raise Http404("Resource not found")
+    except Exception as e:
+        raise Exception(f"Failed to update material requisition: {e}")
