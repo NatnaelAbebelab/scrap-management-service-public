@@ -16,10 +16,10 @@ class MeltingPlants(models.Model):
     is_deleted = models.BooleanField(default=False)
     created_by = models.CharField(max_length=255, blank=True)
     created_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="plant_created_by")
-    created_at = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_by = models.CharField(max_length=255, blank=True)
     updated_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="plant_updated_by")
-    updated_at = models.CharField(max_length=255, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
     record_time = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -30,12 +30,10 @@ class MeltingPlants(models.Model):
 
     def delete(self, *args, **kwargs):
         self.is_deleted = True
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
         self.save()
 
     def restore(self):
         self.is_deleted = False
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
         self.save()
 
 class MaterialRequisition(models.Model):
@@ -53,10 +51,10 @@ class MaterialRequisition(models.Model):
     is_deleted = models.BooleanField(default=False)
     created_by = models.CharField(max_length=255, blank=True)
     created_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="requisition_created_by")
-    created_at = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_by = models.CharField(max_length=255, blank=True)
     updated_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="requisition_updated_by")
-    updated_at = models.CharField(max_length=255, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
     record_time = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -67,12 +65,10 @@ class MaterialRequisition(models.Model):
 
     def delete(self, *args, **kwargs):
         self.is_deleted = True
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
         self.save()
 
     def restore(self):
         self.is_deleted = False
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
         self.save()
 
 class MaterialRequisitionItem(models.Model):
@@ -105,10 +101,10 @@ class RawMaterialIssue(models.Model):
     is_deleted = models.BooleanField(default=False)
     created_by = models.CharField(max_length=255, blank=True)
     created_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="issue_created_by")
-    created_at = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_by = models.CharField(max_length=255, blank=True)
     updated_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="issue_updated_by")
-    updated_at = models.CharField(max_length=255, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
     record_time = models.DateTimeField(auto_now=True)
 
     def __str__(self):
@@ -119,10 +115,8 @@ class RawMaterialIssue(models.Model):
 
     def delete(self, *args, **kwargs):
         self.is_deleted = True
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
         self.save()
 
     def restore(self):
         self.is_deleted = False
-        self.updated_at = datetime.today().strftime('%Y-%m-%d')
         self.save()
