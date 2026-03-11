@@ -1,14 +1,16 @@
-from rest_framework import serializers
-from django.db.models import Q
-
-from helperFunctions.roles import get_user_role
-from helperFunctions.validations import is_digit
-from stock.models import StockBalance
-from .models import GRN, GRNSerialNumber
-from customer.models import PurchaseCustomer
-from rate.models import Rate
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
+
+from django.db.models import Q
+from rest_framework import serializers
+
+from customer.models import PurchaseCustomer
+from helperFunctions.roles import get_user_role
+from helperFunctions.validations import is_digit
+from rate.models import Rate
+from .models import GRN, GRNSerialNumber
+
+
 class GRNSerializer(serializers.ModelSerializer):
     class Meta:
         model = GRN
@@ -164,24 +166,6 @@ class ChangeGRNStatusSerializer(serializers.Serializer):
         if role == "purchase_head" and not data.get("approve_img"):
             raise serializers.ValidationError("approve_img is required for purchase_head")
         return data
-
-class StockBalanceSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = StockBalance
-        fields = [
-            '_id',
-            'purchase_weight',
-            'transport_weight',
-            'net_weight',
-            'weight_date',
-            'is_deleted',
-            'created_by',
-            'created_at',
-            'updated_by',
-            'updated_at',
-            'record_time',
-        ]
-        read_only_fields = ['_id', 'record_time']
     
 class GRNSerialNumberSerializer(serializers.ModelSerializer):
     class Meta:

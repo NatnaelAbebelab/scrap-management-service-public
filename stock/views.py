@@ -4,17 +4,19 @@ from datetime import datetime
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Sum, DateTimeField
+from django.db.models import Sum, DateTimeField, F
 from django.db.models.functions import Cast
 from django.http import JsonResponse
 from rest_framework import status
 from rest_framework.decorators import permission_classes, api_view
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from helperFunctions.pagination import stock_balance_pagination
+from helperFunctions.validations import ToDate
 from stock.models import StockBalance, BeginningBalance
-from stock.serializers import BeginningBalanceSerializer
-from stock.services import create_beginning_balance
+from stock.serializers import BeginningBalanceSerializer, StockBalanceFilterSerializer
+from stock.services import create_beginning_balance, get_stock_balance_service
 from stock.utils.date_format import _default_date_range, parse_date, convert_date_format
 from utils.permissions import role_required
 
@@ -300,12 +302,10 @@ def get_active_balance_summary(request):
                 status=status.HTTP_200_OK
             )
 
-        start_date = active_balance.created_at
-
         stock_records = StockBalance.objects.annotate(
-            weight_date_dt=Cast('weight_date', DateTimeField())
+            weight_date_dt=ToDate(F("weight_date"))
         ).filter(
-            weight_date_dt__gte=start_date
+            weight_date_dt__gte=active_balance.created_at
         ).aggregate(
             total_purchase=Sum("purchased_qty"),
             total_purchase_value=Sum("purchased_value"),
@@ -354,28 +354,49 @@ def get_active_balance_summary(request):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def get_stock_balance(request):
-    try :
-        data = json.loads(request.body)
-        start_date = data.get("start_date")
-        end_date = data.get("end_date")
+    """
+    Fetch stock balance records filtered by type and date range.
+    Delegates all business logic to get_stock_balance_service.
+    """
+    try:
+        serializer = StockBalanceFilterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        stock_balance = StockBalance.objects.all().order_by("-record_time")
-        if start_date:
-            stock_balance = stock_balance.filter(weight_date__gte=start_date)
-        if end_date:
-            stock_balance = stock_balance.filter(weight_date__lte=end_date)
+        # 2. Fetch queryset from service
+        queryset = get_stock_balance_service(serializer.validated_data)
 
-        #stock_balance = StockBalance.objects.all().order_by("-record_time")
-        paginated_records = stock_balance_pagination(request, stock_balance)
-        return JsonResponse({
-            "result": "success",
-            "data": paginated_records.data,
-        }, status=status.HTTP_200_OK)
+        # 3. Paginate results
+        paginated_records = stock_balance_pagination(request, queryset)
+
+        # 4. Return response
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Stock balance records fetched successfully",
+                "data": paginated_records.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+    except ValidationError as e:
+        logger.error("Validation error: %s", str(e))
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Validation error",
+                "errors": e.detail
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
     except Exception as e:
-        return JsonResponse({
-            "result": "error",
-            "data": e
-        }, status=status.HTTP_400_BAD_REQUEST)
+        logger.error("Error occurred while fetching stock balance: %s", str(e))
+        return JsonResponse(
+            {
+                "result": "error",
+                "message": "Error occurred while fetching stock balance"
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 def generate_stock_report(start_date: str = "", end_date: str = "", report_type: str = "all") -> dict:
     if report_type not in {"all", "purchase", "transport"}:
