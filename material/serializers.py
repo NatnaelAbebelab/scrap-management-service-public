@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
@@ -121,10 +123,8 @@ class MaterialRequisitionSerializer(serializers.ModelSerializer):
             "total_requisition_price",
             "requisition_status",
             "created_by",
-            "created_by_id",
             "created_at",
             "updated_by",
-            "updated_by_id",
             "updated_at",
             "items",
         ]
@@ -179,26 +179,151 @@ class ApprovedMaterialRequisitionSerializer(serializers.ModelSerializer):
         model = MaterialRequisition
         fields = ['_id', 'requisition_no', 'requisition_date', 'total_requisition_quantity']
 
+class RawMaterialIssueCreateSerializer(serializers.Serializer):
+    material_requisition = serializers.UUIDField()
+    issue_weight = serializers.FloatField()
+    issue_date = serializers.DateField()
+    issue_no = serializers.CharField(
+        max_length=50,
+        validators=[
+            UniqueValidator(
+                queryset=RawMaterialIssue.objects.all(),
+                message="Issue number already exists"
+            )
+        ]
+    )
+
+    def validate_material_requisition(self, value):
+        if not MaterialRequisition.objects.filter(_id=value).exists():
+            raise serializers.ValidationError("Material requisition not found")
+        return value
+
+    def validate_issue_weight(self, value):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Issue weight must be greater than zero"
+            )
+        return value
+
+    def validate(self, data):
+        requisition_id = data.get("material_requisition")
+        issue_date = data.get("issue_date")
+
+        if requisition_id and issue_date:
+            requisition = MaterialRequisition.objects.filter(_id=requisition_id).first()
+
+            requisition_date = requisition.requisition_date
+
+            if isinstance(requisition_date, str):
+                requisition_date = datetime.strptime(requisition_date, "%Y-%m-%d").date()
+
+            if issue_date < requisition_date:
+                raise serializers.ValidationError(
+                    {"issue_date": "Issue date must be greater than or equal to requisition date"}
+                )
+
+        return data
+
 class RawMaterialIssueSerializer(serializers.ModelSerializer):
-    requisition_no = serializers.CharField(source='material_requisition.requisition_no', read_only=True)
-    total_requisition_quantity = serializers.CharField(source='material_requisition.total_requisition_quantity', read_only=True)
-    
+    material_requisition = serializers.PrimaryKeyRelatedField(
+        queryset=MaterialRequisition.objects.all(),
+        write_only=True
+    )
+
+    melting_plant = serializers.PrimaryKeyRelatedField(
+        queryset=MeltingPlants.objects.all(),
+        write_only=True
+    )
+
+    # Read full objects
+    material_requisition_detail = MaterialRequisitionSerializer(
+        source="material_requisition",
+        read_only=True
+    )
+
+    melting_plant_detail = MeltingPlantsSerializer(
+        source="melting_plant",
+        read_only=True
+    )
+
     class Meta:
         model = RawMaterialIssue
         fields = [
             "_id",
+
             "material_requisition",
-            "requisition_no",
+            "melting_plant",
+
+            # Read objects
+            "material_requisition_detail",
+            "melting_plant_detail",
+
             "issue_date",
             "issue_no",
             "issue_status",
             "issue_weight",
-            "total_requisition_quantity",
+
             "created_by",
-            "created_by_id",
             "created_at",
             "updated_by",
-            "updated_by_id",
             "updated_at",
             "is_deleted",
         ]
+
+class RawMaterialIssueFilterSerializer(serializers.Serializer):
+    requisition_no = serializers.CharField(required=False, allow_blank=True)
+    issue_no = serializers.CharField(required=False, allow_blank=True)
+    issue_status = serializers.CharField(required=False, allow_blank=True)
+    start_date = serializers.DateField(required=False, allow_null=True)
+    end_date = serializers.DateField(required=False, allow_null=True)
+
+    def validate(self, data):
+        start = data.get("start_date")
+        end = data.get("end_date")
+
+        if start and end and start > end:
+            raise serializers.ValidationError(
+                "start_date cannot be greater than end_date"
+            )
+
+        return data
+
+class RawMaterialIssueEditSerializer(serializers.Serializer):
+    _id = serializers.UUIDField()
+    material_requisition = serializers.UUIDField(required=False, allow_null=True)
+    issue_date = serializers.DateField(required=False, format="%Y-%m-%d")
+    issue_no = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    issue_weight = serializers.FloatField(required=False)
+
+    def validate_issue_no(self, value):
+        """
+        Ensure issue_no is unique unless it belongs to the same _id
+        """
+        issue_id = self.initial_data.get("_id")
+        if RawMaterialIssue.objects.filter(issue_no=value).exclude(_id=issue_id).exists():
+            raise serializers.ValidationError("Issue number already exists")
+        return value
+
+    def validate_issue_date(self, value):
+        """
+        Ensure issue_date >= requisition_date
+        """
+        requisition_id = self.initial_data.get("material_requisition")
+        if requisition_id:
+            requisition = MaterialRequisition.objects.filter(_id=requisition_id).first()
+            requisition_date = requisition.requisition_date
+
+            if isinstance(requisition_date, str):
+                requisition_date = datetime.strptime(requisition_date, "%Y-%m-%d").date()
+
+            if value < requisition_date:
+                raise serializers.ValidationError(
+                    {"issue_date": "Issue date must be greater than or equal to requisition date"}
+                )
+
+        return value
+
+    def validate_issue_weight(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Issue weight must be greater than zero")
+        return value

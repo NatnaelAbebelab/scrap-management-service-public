@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta
 
 from django.db import transaction
@@ -7,8 +8,10 @@ from django.utils import timezone
 
 from helperFunctions.validations import ToDate
 from stock.models import BeginningBalance, StockBalance
+from stock.serializers import StockBalanceSerializer
 from stock.type_enum import StockBalanceOn
 
+logger = logging.getLogger(__name__)
 
 def create_beginning_balance(beginning_qty, beginning_value, user):
     """
@@ -223,3 +226,59 @@ def generate_stock_card_service(filters: dict):
         "totals": totals,
         "queryset": queryset
     }
+
+def add_issue_balance(issue_date, issue_no, issue_weight, melting_plant, user):
+    """
+    Create a StockBalance record when a RawMaterialIssue is APPROVED.
+
+    Rules:
+    - Every issue creates a new StockBalance record
+    - issue_no is unique
+    - remaining_qty is calculated based on the latest balance
+    """
+
+    try:
+        with transaction.atomic():
+
+            # Get last stock balance for the plant
+            last_balance = (
+                StockBalance.objects
+                .filter(
+                    melting_plant=melting_plant,
+                    is_deleted=False
+                )
+                .order_by("-record_time")
+                .first()
+            )
+
+            previous_remaining_qty = last_balance.remaining_qty if last_balance else 0
+            previous_remaining_value = last_balance.remaining_value if last_balance else 0
+
+            # Calculate new remaining quantity
+            new_remaining_qty = previous_remaining_qty - issue_weight
+
+            # Create a new stock balance entry
+            stock_balance = StockBalance.objects.create(
+                transaction_type=StockBalanceOn.ISSUE.value,
+                issue_no=issue_no,
+                issued_qty=issue_weight,
+                remaining_qty=new_remaining_qty,
+                remaining_value=previous_remaining_value,
+                melting_plant=melting_plant,
+                weight_date=issue_date,
+                created_by=user,
+                updated_by=user
+            )
+
+            serializer = StockBalanceSerializer(stock_balance)
+
+            return {
+                "stock_balance": serializer.data,
+                "issued_qty": issue_weight,
+                "previous_remaining_qty": previous_remaining_qty,
+                "new_remaining_qty": new_remaining_qty
+            }
+
+    except Exception as e:
+        logger.error(f"Error in add_issue_balance: {e}")
+        raise e

@@ -15,11 +15,9 @@ class MeltingPlants(models.Model):
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     plant_name = models.CharField(max_length=255, blank=True)
     is_deleted = models.BooleanField(default=False)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="plant_created_by")
+    created_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="plant_created_by")
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_by = models.CharField(max_length=255, blank=True)
-    updated_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="plant_updated_by")
+    updated_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="plant_updated_by")
     updated_at = models.DateTimeField(auto_now=True)
     record_time = models.DateTimeField(auto_now=True)
 
@@ -50,11 +48,9 @@ class MaterialRequisition(models.Model):
         default=RequisitionStatus.REQUESTED.value
     )
     is_deleted = models.BooleanField(default=False)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="requisition_created_by")
+    created_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="requisition_created_by")
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_by = models.CharField(max_length=255, blank=True)
-    updated_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="requisition_updated_by")
+    updated_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="requisition_updated_by")
     updated_at = models.DateTimeField(auto_now=True)
     record_time = models.DateTimeField(auto_now=True)
 
@@ -100,16 +96,14 @@ class RawMaterialIssue(models.Model):
     )
     issue_weight = models.FloatField(default=0.0)
     is_deleted = models.BooleanField(default=False)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="issue_created_by")
+    created_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="issue_created_by")
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_by = models.CharField(max_length=255, blank=True)
-    updated_by_id = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="issue_updated_by")
+    updated_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="issue_updated_by")
     updated_at = models.DateTimeField(auto_now=True)
     record_time = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return self._id
+        return str(self._id)
 
     objects = ScrapItemManager()
     all_objects = models.Manager()
