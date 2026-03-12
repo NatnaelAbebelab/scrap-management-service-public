@@ -24,7 +24,7 @@ class MeltingPlants(models.Model):
     record_time = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return self._id
+        return str(self._id)
 
     objects = ScrapItemManager()
     all_objects = models.Manager()
