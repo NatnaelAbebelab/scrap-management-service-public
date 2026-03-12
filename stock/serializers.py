@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from material.models import MeltingPlants
 from stock.models import StockBalance
 from stock.type_enum import StockBalanceOn
 
@@ -22,6 +23,12 @@ class StockBalanceSerializer(serializers.ModelSerializer):
         required=True
     )
 
+    melting_plant = serializers.PrimaryKeyRelatedField(
+        queryset=MeltingPlants.objects.all(),
+        required=False,
+        allow_null=True
+    )
+
     class Meta:
         model = StockBalance
         fields = [
@@ -37,6 +44,7 @@ class StockBalanceSerializer(serializers.ModelSerializer):
             "issue_value",
             "remaining_qty",
             "remaining_value",
+            "melting_plant",
             "weight_date",
             "record_time",
             "is_deleted",

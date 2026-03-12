@@ -1,14 +1,15 @@
-from datetime import timedelta
-
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Sum, DateField
+from django.db.models.functions import Cast
 from django.http import Http404
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
 
 from helperFunctions.validations import CastToDate
-from material.models import MeltingPlants, MaterialRequisition, MaterialRequisitionItem
+from material.enums import IssueStatus
+from material.models import MeltingPlants, MaterialRequisition, MaterialRequisitionItem, RawMaterialIssue
 from stock.models import BeginningBalance
+from stock.services import add_issue_balance
+
 
 def assign_if_not_empty(obj, field_name, value):
     """
@@ -24,8 +25,7 @@ def create_melting_plant(validated_data, user):
 
     plant = MeltingPlants.objects.create(
         plant_name=validated_data["plant_name"],
-        created_by=user.username,
-        created_by_id=user,
+        created_by=user,
     )
 
     return plant
@@ -70,8 +70,7 @@ def create_material_requisition(validated_data, user):
             melting_plant=melting_plant,
             requisition_date=validated_data["requisition_date"],
             requisition_no=validated_data["requisition_no"],
-            created_by=user.username,
-            created_by_id=user
+            created_by=user
         )
 
         total_quantity = 0
@@ -236,3 +235,158 @@ def update_material_requisition(user, validated_data):
         raise Http404("Resource not found")
     except Exception as e:
         raise Exception(f"Failed to update material requisition: {e}")
+
+def create_raw_material_issue_service(validated_data, user):
+
+    requisition = get_object_or_404(
+        MaterialRequisition,
+        _id=validated_data["material_requisition"]
+    )
+
+    issue_weight = validated_data["issue_weight"]
+
+    # Total already issued
+    total_issued = RawMaterialIssue.objects.filter(
+        material_requisition=requisition,
+        is_deleted=False
+    ).aggregate(total=Sum("issue_weight"))["total"] or 0.0
+
+    remaining = requisition.total_requisition_quantity - total_issued
+
+    if total_issued >= requisition.total_requisition_quantity:
+        raise ValueError("All amounts of the requisition have already been issued")
+
+    if issue_weight > remaining:
+        raise ValueError("Issue weight exceeds remaining quantity")
+
+    issue = RawMaterialIssue.objects.create(
+        material_requisition=requisition,
+        issue_date=validated_data.get("issue_date"),
+        issue_no=validated_data.get("issue_no"),
+        issue_weight=issue_weight,
+        created_by=user,
+        updated_by=user
+    )
+
+    return issue
+
+def get_raw_material_issues_service(filters):
+
+    issues = RawMaterialIssue.objects.all()
+
+    requisition_no = filters.get("requisition_no")
+    issue_no = filters.get("issue_no")
+    issue_status = filters.get("issue_status")
+    start_date = filters.get("start_date")
+    end_date = filters.get("end_date")
+
+    if requisition_no:
+        issues = issues.filter(
+            material_requisition__requisition_no__icontains=requisition_no
+        )
+
+    if issue_no:
+        issues = issues.filter(issue_no__icontains=issue_no)
+
+    if issue_status:
+        issues = issues.filter(issue_status=issue_status)
+
+    # Annotate the cast date for filtering (since issue_date is CharField)
+    issues = issues.annotate(issue_date_casted=Cast(F("issue_date"), DateField()))
+
+    if start_date:
+        issues = issues.filter(issue_date_casted__gte=start_date)
+
+    if end_date:
+        issues = issues.filter(issue_date_casted__lte=end_date)
+
+    return issues.order_by("-record_time")
+
+@transaction.atomic
+def edit_raw_material_issue_service(validated_data, user):
+    """
+    Business logic for editing a RawMaterialIssue
+    """
+    try:
+        issue_id = validated_data["_id"]
+        issue = get_object_or_404(
+            RawMaterialIssue.objects.filter(
+                _id=issue_id
+            ).exclude(issue_status=IssueStatus.APPROVED.value)
+        )
+
+        material_requisition_id = validated_data.get("material_requisition")
+        new_issue_weight = validated_data.get("issue_weight", issue.issue_weight)
+
+        # If material_requisition is updated, fetch it and check the remaining weight
+        if material_requisition_id:
+            requisition = get_object_or_404(MaterialRequisition, _id=material_requisition_id)
+
+            total_issued = RawMaterialIssue.objects.filter(
+                material_requisition=requisition,
+                is_deleted=False
+            ).exclude(_id=issue_id).aggregate(total=Sum("issue_weight"))["total"] or 0.0
+
+            remaining = requisition.total_requisition_quantity - total_issued
+
+            if new_issue_weight > remaining:
+                raise ValueError("Issue weight exceeds remaining quantity")
+
+            issue.material_requisition = requisition
+
+            # Ensure issue_date >= requisition_date if provided which is handled on the serializer
+
+        # Update other fields if provided
+        assign_if_not_empty(issue, "issue_date", validated_data.get("issue_date"))
+        assign_if_not_empty(issue, "issue_no", validated_data.get("issue_no"))
+        assign_if_not_empty(issue, "issue_weight", validated_data.get("issue_weight"))
+
+        issue.updated_by = user
+
+        issue.save()
+        return issue
+
+    except Http404:
+        raise Http404("Resource not found")
+    except Exception as e:
+        raise Exception(f"Failed to update RawMaterialIssue: {e}")
+
+def change_raw_material_issue_status_service(issue_id, user):
+    """
+    Change the status of a RawMaterialIssue:
+        NEW -> ISSUED -> APPROVED
+    Raises ValueError if the transition is invalid.
+    Returns serialized issue and optional stock balance result.
+    """
+    with transaction.atomic():
+        # Fetch issue excluding deleted
+        issue = get_object_or_404(RawMaterialIssue, _id=issue_id, is_deleted=False)
+
+        stock_balance_result = None
+
+        # Determine new status
+        if issue.issue_status == IssueStatus.NEW.value:
+            new_status = IssueStatus.ISSUED.value
+
+        elif issue.issue_status == IssueStatus.ISSUED.value:
+            new_status = IssueStatus.APPROVED.value
+            total_issue_weight = issue.issue_weight
+
+            # Call stock balance update logic
+            stock_balance_result = add_issue_balance(
+                issue_date=issue.issue_date,
+                issue_no=issue.issue_no,
+                issue_weight=total_issue_weight,
+                melting_plant=issue.material_requisition.melting_plant,
+                user=user,
+            )
+
+        else:
+            raise ValueError(f"Cannot change status from '{issue.issue_status}'")
+
+        # Update audit and status
+        issue.issue_status = new_status
+        issue.updated_by = user
+        issue.save()
+
+        return issue, stock_balance_result
