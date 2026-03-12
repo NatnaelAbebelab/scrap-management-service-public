@@ -23,7 +23,7 @@ def create_melting_plant(validated_data, user):
     """
 
     plant = MeltingPlants.objects.create(
-        plant_name=validated_data["plant"],
+        plant_name=validated_data["plant_name"],
         created_by=user.username,
         created_by_id=user,
     )
@@ -127,22 +127,21 @@ def get_filtered_material_requisitions(filters):
     requisition_no = filters.get("requisition_no")
     status = filters.get("status")
 
-    today = timezone.now().date()
-
-    # Determine end_date
-    if not end_date:
-        end_date = today
-
-    # Determine start_date
-    if not start_date:
-        start_date = end_date - timedelta(days=60)
-
     # Cast requisition_date string to date for filtering
     requisitions = requisitions.annotate(
         requisition_date_casted=CastToDate(F("requisition_date"))
-    ).filter(
-        requisition_date_casted__range=[start_date, end_date]
     )
+
+    # Determine date
+    if start_date:
+        requisitions = requisitions.filter(
+            requisition_date_casted__gte=start_date
+        )
+
+    if end_date:
+        requisitions = requisitions.filter(
+            requisition_date_casted__lte=end_date
+        )
 
     # Plant filter (UUID -> FK)
     if plant:
@@ -167,7 +166,7 @@ def update_material_requisition(user, validated_data):
     plant_uuid = validated_data.get("plant")
     requisition_date = validated_data.get("requisition_date")
     requisition_no = validated_data.get("requisition_no")
-    items_data = validated_data.get("items", [])
+    items_data = validated_data.get("items")
 
     try:
         # Fetch the requisition

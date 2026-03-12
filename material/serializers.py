@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
@@ -62,12 +63,30 @@ class MaterialRequisitionItemAddRequestSerializer(serializers.Serializer):
 class MaterialRequisitionCreateSerializer(serializers.Serializer):
     plant = serializers.UUIDField()
     requisition_date = serializers.DateField()
-    requisition_no = serializers.CharField(max_length=50)
+    requisition_no = serializers.CharField(
+        max_length=50,
+        validators=[
+            UniqueValidator(
+                queryset=MaterialRequisition.objects.all(),
+                message="Requisition number already exists"
+            )
+        ]
+    )
     items = MaterialRequisitionItemAddRequestSerializer(many=True)
 
     def validate_plant(self, value):
         if not MeltingPlants.objects.filter(_id=value).exists():
             raise serializers.ValidationError("Melting plant not found")
+        return value
+
+    def validate_requisition_date(self, value):
+        today = timezone.now().date()
+
+        if value > today:
+            raise serializers.ValidationError(
+                "Requisition date cannot be in the future"
+            )
+
         return value
 
     def validate_items(self, items):
@@ -136,7 +155,24 @@ class MaterialRequisitionEditSerializer(serializers.Serializer):
     plant = serializers.UUIDField(required=False, allow_null=True)
     requisition_date = serializers.DateField(required=False, allow_null=True, format="%Y-%m-%d")
     requisition_no = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    items = MaterialRequisitionItemUpdateRequestSerializer(many=True)
+    items = MaterialRequisitionItemUpdateRequestSerializer(many=True, allow_null=False, allow_empty=False)
+
+    def validate_requisition_no(self, value):
+        value = value.strip()
+
+        if not value:
+            return value
+
+        requisition_id = self.initial_data.get("_id")
+
+        exists = MaterialRequisition.objects.filter(
+            requisition_no=value
+        ).exclude(_id=requisition_id).exists()
+
+        if exists:
+            raise serializers.ValidationError("Requisition number already exists")
+
+        return value
 
 class ApprovedMaterialRequisitionSerializer(serializers.ModelSerializer):
     class Meta:
