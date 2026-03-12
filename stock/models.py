@@ -4,7 +4,8 @@ from datetime import datetime
 from django.contrib.auth import get_user_model
 from django.db import models
 
-from stock.type_enum import StockBalanceOn
+from material.models import MeltingPlants
+from .type_enum import StockBalanceOn
 
 User = get_user_model()
 # Create your models here.
@@ -37,6 +38,16 @@ class StockBalance(models.Model):
     # Running stock
     remaining_qty = models.FloatField(default=0.0)
     remaining_value = models.FloatField(default=0.0)
+
+    # Plant info for issue
+    melting_plant = models.ForeignKey(
+        MeltingPlants,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="issue_melting_plant",
+        default=None
+    )
 
     # Date info
     weight_date = models.CharField(max_length=255, blank=True, null=True)
