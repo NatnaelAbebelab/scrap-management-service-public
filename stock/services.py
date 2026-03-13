@@ -118,7 +118,7 @@ def get_stock_balance_service(filters: dict):
         StockBalance.objects
         .annotate(weight_date_dt=ToDate(F("weight_date")))
         .filter(weight_date_dt__range=(start_date, end_date))
-        .order_by("-record_time")
+        .order_by("weight_date_dt") # ascending = oldest first
     )
 
     # Apply type filter
