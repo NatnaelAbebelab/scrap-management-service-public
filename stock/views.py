@@ -24,50 +24,6 @@ logger = logging.getLogger(__name__)
 today = datetime.today().strftime('%Y-%m-%d')
 User = get_user_model()
 
-@permission_classes([IsAuthenticated])
-def add_transport_stock(transport_weight, request):
-    saved_records = []
-    active_cumulated_balance = BeginningBalance.objects.filter(is_active=True).first()
-    for date_key, values in transport_weight.items():
-        purchase_weight = float(values.get("purchase_weight", 0))
-        transport_weight = float(values.get("transport_weight", 0))
-
-        stock = StockBalance.objects.filter(weight_date=date_key).first()
-
-        if stock:
-            stock.transport_weight += transport_weight
-            stock.net_weight = stock.purchase_weight - stock.transport_weight
-            stock.updated_by = request.user.username
-            stock.updated_at = today
-            stock.save()
-
-            if active_cumulated_balance:
-                active_cumulated_balance.current_balance -= stock.net_weight
-                active_cumulated_balance.save()
-        else:
-            stock = StockBalance.objects.create(
-                purchase_weight=purchase_weight,
-                transport_weight=transport_weight,
-                net_weight=purchase_weight - transport_weight,
-                weight_date=date_key,
-                created_by=request.user.username,
-                created_at=today,
-                updated_by=request.user.username,
-                updated_at=today
-            )
-            if active_cumulated_balance:
-                active_cumulated_balance.current_balance -= stock.net_weight
-                active_cumulated_balance.save()
-
-        saved_records.append({
-            "weight_date": stock.weight_date,
-            "purchase_weight": stock.purchase_weight,
-            "transport_weight": stock.transport_weight,
-            "net_weight": stock.net_weight,
-        })
-
-    return saved_records
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
 def add_beginning_balance(request):

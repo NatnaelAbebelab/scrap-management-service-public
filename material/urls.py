@@ -25,10 +25,6 @@ urlpatterns = [
     path('get-plants/', views.get_plants, name='get-plants'),
     
     #========= REPORTS ========
-    path('paginated-material-requisition-report/', views.material_requisition_report, name='paginated-material-requisition-report'),
-    path('material-requisition-report-export/', views.export_material_requisition_report,
-         name='material-requisition-report-export'),
-    path('paginated-material-issue-report/', views.material_issue_report, name='paginated-material-issue-report'),
-    path('material-issue-report-export/', views.export_material_issue_report,
-         name='material-issue-report-export'),
+    path('material-requisition-report/', views.material_requisition_report, name='material-requisition-report'),
+    path('material-issue-report/', views.material_issue_report, name='material-issue-report'),
 ]

@@ -10,17 +10,17 @@ from rest_framework.permissions import IsAuthenticated
 
 from helperFunctions.pagination import material_requisition_pagination, raw_material_issue_pagination, \
     melting_plants_pagination
-from material.enums import Plants, RequisitionStatus, IssueStatus
+from material.enums import RequisitionStatus, IssueStatus
 from material.models import MaterialRequisition, RawMaterialIssue, MeltingPlants
-from material.report import MaterialRequisitionFilter, RawMaterialIssueFilter
 from material.serializers import MaterialRequisitionSerializer, RawMaterialIssueSerializer, \
     ApprovedMaterialRequisitionSerializer, MeltingPlantsSerializer, MeltingPlantCreateSerializer, \
     MeltingPlantUpdateSerializer, MaterialRequisitionCreateSerializer, MaterialRequisitionFilterSerializer, \
     MaterialRequisitionEditSerializer, RawMaterialIssueCreateSerializer, RawMaterialIssueFilterSerializer, \
-    RawMaterialIssueEditSerializer
+    RawMaterialIssueEditSerializer, MaterialRequisitionReportSerializer, RawMaterialIssueReportSerializer
 from material.services import create_melting_plant, update_melting_plant, create_material_requisition, \
     get_filtered_material_requisitions, update_material_requisition, create_raw_material_issue_service, \
-    get_raw_material_issues_service, edit_raw_material_issue_service, change_raw_material_issue_status_service
+    get_raw_material_issues_service, edit_raw_material_issue_service, change_raw_material_issue_status_service, \
+    filter_material_requisition_service, filter_raw_material_issue_service
 from utils.permissions import role_required
 
 # Create your views here.
@@ -657,216 +657,106 @@ def delete_raw_material_issue(request, issue_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def material_requisition_report(request):
-    with transaction.atomic():
-        try:
-            """
-               Get paginated material requisition report with filters
+    """
+    Material Requisition Plain Report
+    """
 
-               Expected request body:
-               {
-                   "requisition_no": "REQ-001",
-                   "requisition_start_date": "2024-01-01",
-                   "requisition_start_date": "2024-12-31",
-                   "melting_plant": "3f2f1a4c-9416-4a0a-8ae4-859e7e45ac7c",
-                   "min_quantity": 10,
-                   "max_quantity": 100,
-                   "status": "approved",
-               }
-            """
+    try:
+        serializer = MaterialRequisitionReportSerializer(data=request.GET)
 
-            filters = {
-                'requisition_no': request.GET.get('requisition_no'),
-                'requisition_start_date': request.GET.get('requisition_start_date'),
-                'requisition_end_date': request.GET.get('requisition_end_date'),
-                'melting_plant': request.GET.get('melting_plant'),
-                'min_quantity': request.GET.get('min_quantity'),
-                'max_quantity': request.GET.get('max_quantity'),
-                'requisition_status': request.GET.get('status')
-            }
-
-            base_queryset = MaterialRequisition.objects.select_related(
-                'melting_plant', 'created_by', 'updated_by'
-            ).prefetch_related('items')
-
-            filtered_queryset = MaterialRequisitionFilter.apply_filters(
-                base_queryset, filters
+        if not serializer.is_valid():
+            return JsonResponse(
+                {
+                    "result": "error",
+                    "message": "Invalid filters",
+                    "content": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-            serialized_requisition = material_requisition_pagination(request, filtered_queryset)
-            return JsonResponse(
-                {"result": "success", "message": "fetched successfully", "content": serialized_requisition.data},
-                status=status.HTTP_200_OK)
+        filters = serializer.validated_data
 
-        except Exception as e:
-            return JsonResponse({
+        queryset = filter_material_requisition_service(filters)
+
+        # check whether the purpose is export or not
+        export = filters.get("export")
+
+        if export:
+            serializer = MaterialRequisitionSerializer(queryset, many=True)
+        else:
+            serializer = material_requisition_pagination(request, queryset)
+
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Material requisition report fetched successfully",
+                "content": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+    except Exception as e:
+        logger.error(f"Error occurred while fetching material requisition report: {e}")
+        return JsonResponse(
+            {
                 "result": "error",
-                "message": "Error occurred while fetching material requisition report",
+                "message": "Failed to fetch material requisition report",
                 "content": str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def export_material_requisition_report(request):
-    with transaction.atomic():
-        try:
-            """
-               Get paginated material requisition report with filters
-
-               Expected request body:
-               {
-                   "requisition_no": "REQ-001",
-                   "requisition_start_date": "2024-01-01",
-                   "requisition_start_date": "2024-12-31",
-                   "melting_plant": "3f2f1a4c-9416-4a0a-8ae4-859e7e45ac7c",
-                   "min_quantity": 10,
-                   "max_quantity": 100,
-                   "status": "approved",
-               }
-            """
-
-            filters = {
-                'requisition_no': request.GET.get('requisition_no'),
-                'requisition_start_date': request.GET.get('requisition_start_date'),
-                'requisition_end_date': request.GET.get('requisition_end_date'),
-                'melting_plant': request.GET.get('melting_plant'),
-                'min_quantity': request.GET.get('min_quantity'),
-                'max_quantity': request.GET.get('max_quantity'),
-                'requisition_status': request.GET.get('status')
-            }
-
-            base_queryset = MaterialRequisition.objects.select_related(
-                'melting_plant', 'created_by', 'updated_by'
-            ).prefetch_related('items')
-
-            filtered_queryset = MaterialRequisitionFilter.apply_filters(
-                base_queryset, filters
-            )
-
-            serialized_requisition = MaterialRequisitionSerializer(filtered_queryset, many=True)
-
-            return JsonResponse(
-                {"result": "success", "message": "fetched successfully", "content": serialized_requisition.data},
-                status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return JsonResponse({
-                "result": "error",
-                "message": "Error occurred while fetching material requisition report",
-                "content": str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def material_issue_report(request):
-    with transaction.atomic():
-        try:
-            """
-            Get paginated raw material issue report with filters
+    """
+    Raw Material Issue Report (Paginated)
+    """
 
-            Expected query parameters:
-            {
-                "issue_no": "ISSUE-001",
-                "issue_start_date": "2024-01-01",
-                "issue_end_date": "2024-12-31",
-                "issue_status": "issued",
-                "min_weight": 10,
-                "max_weight": 100
-            }
-            """
+    try:
+        serializer = RawMaterialIssueReportSerializer(data=request.GET)
 
-            filters = {
-                'issue_no': request.GET.get('issue_no'),
-                'issue_start_date': request.GET.get('issue_start_date'),
-                'issue_end_date': request.GET.get('issue_end_date'),
-                'issue_status': request.GET.get('issue_status'),
-                'min_weight': request.GET.get('min_weight'),
-                'max_weight': request.GET.get('max_weight'),
-            }
-
-            # Get base queryset with related data
-            base_queryset = RawMaterialIssue.objects.select_related(
-                'material_requisition',
-                'material_requisition__melting_plant',
-                'created_by',
-                'updated_by'
-            )
-
-            # Apply filters
-            filtered_queryset = RawMaterialIssueFilter.apply_filters(
-                base_queryset, filters
-            )
-
-            # Create pagination function similar to material_requisition_pagination
-            serialized_issues = raw_material_issue_pagination(request, filtered_queryset)
-
+        if not serializer.is_valid():
             return JsonResponse(
-                {"result": "success", "message": "Raw material issue report fetched successfully",
-                 "content": serialized_issues.data},
-                status=status.HTTP_200_OK)
+                {
+                    "result": "error",
+                    "message": "Invalid filters",
+                    "content": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        except Exception as e:
-            return JsonResponse({
+        filters = serializer.validated_data
+
+        queryset = filter_raw_material_issue_service(filters)
+
+        # check whether the purpose is export or not
+        export = filters.get("export")
+
+        if export:
+            serializer = RawMaterialIssueSerializer(queryset, many=True)
+        else:
+            serializer = raw_material_issue_pagination(request, queryset)
+
+        return JsonResponse(
+            {
+                "result": "success",
+                "message": "Raw material issue report fetched successfully",
+                "content": serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+    except Exception as e:
+        logger.error(f"Error occurred while fetching raw material issue report: {e}")
+        return JsonResponse(
+            {
                 "result": "error",
                 "message": "Error occurred while fetching raw material issue report",
                 "content": str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def export_material_issue_report(request):
-    with transaction.atomic():
-        try:
-            """
-            Get paginated raw material issue report with filters
-
-            Expected query parameters:
-            {
-                "issue_no": "ISSUE-001",
-                "issue_start_date": "2024-01-01",
-                "issue_end_date": "2024-12-31",
-                "issue_status": "issued",
-                "min_weight": 10,
-                "max_weight": 100
-            }
-            """
-
-            filters = {
-                'issue_no': request.GET.get('issue_no'),
-                'issue_start_date': request.GET.get('issue_start_date'),
-                'issue_end_date': request.GET.get('issue_end_date'),
-                'issue_status': request.GET.get('issue_status'),
-                'min_weight': request.GET.get('min_weight'),
-                'max_weight': request.GET.get('max_weight'),
-            }
-
-            # Get base queryset with related data
-            base_queryset = RawMaterialIssue.objects.select_related(
-                'material_requisition',
-                'material_requisition__melting_plant',
-                'created_by',
-                'updated_by'
-            )
-
-            # Apply filters
-            filtered_queryset = RawMaterialIssueFilter.apply_filters(
-                base_queryset, filters
-            )
-
-            serialized_issues = RawMaterialIssueSerializer(filtered_queryset, many=True)
-
-            return JsonResponse(
-                {"result": "success", "message": "Raw material issue report fetched successfully",
-                 "content": serialized_issues.data},
-                status=status.HTTP_200_OK)
-
-        except Exception as e:
-            return JsonResponse({
-                "result": "error",
-                "message": "Error occurred while fetching raw material issue report",
-                "content": str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
+            },
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 """
 ==================Additional Methods ======================
