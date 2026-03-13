@@ -327,3 +327,81 @@ class RawMaterialIssueEditSerializer(serializers.Serializer):
         if value is not None and value <= 0:
             raise serializers.ValidationError("Issue weight must be greater than zero")
         return value
+
+class MaterialRequisitionReportSerializer(serializers.Serializer):
+
+    requisition_no = serializers.CharField(required=False, allow_blank=True)
+
+    requisition_start_date = serializers.DateField(required=False)
+    requisition_end_date = serializers.DateField(required=False)
+
+    melting_plant = serializers.UUIDField(required=False)
+
+    min_quantity = serializers.FloatField(required=False)
+    max_quantity = serializers.FloatField(required=False)
+
+    status = serializers.CharField(required=False, allow_blank=True)
+
+    export = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, data):
+        start_date = data.get("requisition_start_date")
+        end_date = data.get("requisition_end_date")
+
+        min_qty = data.get("min_quantity")
+        max_qty = data.get("max_quantity")
+
+        # Validate date range
+        if start_date and end_date:
+            if start_date > end_date:
+                raise serializers.ValidationError(
+                    {"requisition_end_date": "End date must be greater than start date"}
+                )
+
+        # Validate quantity range
+        if min_qty is not None and max_qty is not None:
+            if min_qty > max_qty:
+                raise serializers.ValidationError(
+                    {"max_quantity": "max_quantity must be greater than min_quantity"}
+                )
+
+        return data
+
+class RawMaterialIssueReportSerializer(serializers.Serializer):
+
+    issue_no = serializers.CharField(required=False, allow_blank=True)
+
+    issue_start_date = serializers.DateField(required=False)
+    issue_end_date = serializers.DateField(required=False)
+
+    issue_status = serializers.CharField(required=False, allow_blank=True)
+
+    melting_plant = serializers.UUIDField(required=False)
+
+    min_weight = serializers.FloatField(required=False)
+    max_weight = serializers.FloatField(required=False)
+
+    export = serializers.BooleanField(required=False, default=False)
+
+    def validate(self, data):
+
+        start_date = data.get("issue_start_date")
+        end_date = data.get("issue_end_date")
+
+        min_weight = data.get("min_weight")
+        max_weight = data.get("max_weight")
+
+        # Validate date range
+        if start_date and end_date and start_date > end_date:
+            raise serializers.ValidationError(
+                {"issue_end_date": "End date must be greater than start date"}
+            )
+
+        # Validate weight range
+        if min_weight is not None and max_weight is not None:
+            if min_weight > max_weight:
+                raise serializers.ValidationError(
+                    {"max_weight": "max_weight must be greater than min_weight"}
+                )
+
+        return data

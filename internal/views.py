@@ -1,29 +1,29 @@
+import json
+import logging
+import os
+import sys
+import uuid
+
+import pandas as pd
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
+from django.db import IntegrityError
+from django.db.models import Count, Sum, FloatField
+from django.db.models.expressions import F
+from django.db.models.functions import Cast, Round
+from django.http import JsonResponse, Http404
+from django.shortcuts import get_object_or_404, get_list_or_404
+from django.utils import timezone
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
-from stock.views import add_transport_stock
-from utils.permissions import role_required
-from utils.exceptions import *
-from django.shortcuts import get_object_or_404, get_list_or_404
-from django.http import JsonResponse, Http404
-from django.utils import timezone
-from django.db import IntegrityError
-from django.contrib.postgres.aggregates import ArrayAgg
-from django.db.models import Q, Count, Sum, FloatField, F
-from django.db.models.functions import Cast, Round
-from django.db.models.expressions import F
-from .models import Agency, Agreement, AgreementRange, FactoryScrapMove, DailyScrapMoveAggregate
-from helperFunctions.material_type import *
-from helperFunctions.grade_type import *
-from helperFunctions.validations import *
-from helperFunctions.pagination import *
-from helperFunctions.status import *
-from helperFunctions.roles import *
-import pandas as pd
-import json, uuid, os, logging, sys
 
-from internal.tasks import process_in_background
+from helperFunctions.material_type import *
+from helperFunctions.pagination import *
+from helperFunctions.roles import *
+from helperFunctions.status import *
+from helperFunctions.validations import *
+from utils.exceptions import *
+from utils.permissions import role_required
 
 # Create your views here.
 logger = logging.getLogger(__name__)

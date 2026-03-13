@@ -10,7 +10,6 @@ from material.models import MeltingPlants, MaterialRequisition, MaterialRequisit
 from stock.models import BeginningBalance
 from stock.services import add_issue_balance
 
-
 def assign_if_not_empty(obj, field_name, value):
     """
     Helper to update a field only if the value is not None or blank.
@@ -390,3 +389,96 @@ def change_raw_material_issue_status_service(issue_id, user):
         issue.save()
 
         return issue, stock_balance_result
+
+def filter_material_requisition_service(filters):
+    queryset = (
+        MaterialRequisition.objects
+        .select_related("melting_plant", "created_by", "updated_by")
+        .prefetch_related("items")
+    )
+
+    # Convert char date → DateField
+    queryset = queryset.annotate(
+        requisition_date_cast=Cast("requisition_date", DateField())
+    )
+
+    requisition_no = filters.get("requisition_no")
+    start_date = filters.get("requisition_start_date")
+    end_date = filters.get("requisition_end_date")
+    melting_plant = filters.get("melting_plant")
+    min_quantity = filters.get("min_quantity")
+    max_quantity = filters.get("max_quantity")
+    status = filters.get("status")
+
+    if requisition_no:
+        queryset = queryset.filter(requisition_no__icontains=requisition_no)
+
+    if start_date:
+        queryset = queryset.filter(requisition_date_cast__gte=start_date)
+
+    if end_date:
+        queryset = queryset.filter(requisition_date_cast__lte=end_date)
+
+    if melting_plant:
+        queryset = queryset.filter(melting_plant_id=melting_plant)
+
+    if status:
+        queryset = queryset.filter(requisition_status=status)
+
+    if min_quantity:
+        queryset = queryset.filter(items__quantity__gte=min_quantity)
+
+    if max_quantity:
+        queryset = queryset.filter(items__quantity__lte=max_quantity)
+
+    return queryset.distinct()
+
+def filter_raw_material_issue_service(filters):
+    queryset = (
+        RawMaterialIssue.objects
+        .select_related(
+            "material_requisition",
+            "material_requisition__melting_plant",
+            "created_by",
+            "updated_by"
+        )
+    )
+
+    # Cast issue_date (char → date)
+    queryset = queryset.annotate(
+        issue_date_cast=Cast("issue_date", DateField())
+    )
+
+    issue_no = filters.get("issue_no")
+    start_date = filters.get("issue_start_date")
+    end_date = filters.get("issue_end_date")
+    status = filters.get("issue_status")
+    melting_plant = filters.get("melting_plant")
+    min_weight = filters.get("min_weight")
+    max_weight = filters.get("max_weight")
+
+    if issue_no:
+        queryset = queryset.filter(issue_no__icontains=issue_no)
+
+    if start_date:
+        queryset = queryset.filter(issue_date_cast__gte=start_date)
+
+    if end_date:
+        queryset = queryset.filter(issue_date_cast__lte=end_date)
+
+    if status:
+        queryset = queryset.filter(status=status)
+
+    # Filter by melting plant through requisition
+    if melting_plant:
+        queryset = queryset.filter(
+            material_requisition__melting_plant_id=melting_plant
+        )
+
+    if min_weight:
+        queryset = queryset.filter(total_weight__gte=min_weight)
+
+    if max_weight:
+        queryset = queryset.filter(total_weight__lte=max_weight)
+
+    return queryset
