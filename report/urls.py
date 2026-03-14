@@ -2,8 +2,8 @@ from django.urls import path
 from .import views
 
 urlpatterns = [
+    path('plain-report/', views.plain_grn_report, name='plain_report'),
     path('aggregate-report/', views.aggregate_report, name='aggregate_report'),
-    path('plain-report/', views.plain_report, name='plain_report'),
     path('general-metrics/', views.general_metrics, name='general_metrics'),
     path('scrap-grade-percentage/', views.scrap_grade_percentage, name='scrap_grade_percentage'),
     path('yearly-purchase-report/', views.yearly_purchase_report, name='yearly_purchase_report'),

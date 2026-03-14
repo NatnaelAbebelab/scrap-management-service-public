@@ -69,7 +69,7 @@ def filter_grn(role, tin, material_type, plate_no, start_date, end_date, status)
             grn_records = grn_records.filter(material_type__iexact=material_type)
         
         grn_records = grn_records.annotate(
-            casted_first_date=ToDate("first_date")
+            casted_first_date=ToDateTime("first_date")
         )
         if start_date:
             start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
@@ -113,7 +113,7 @@ def get_daily_performance(role, tin, material_type, start_date, end_date, plate_
             grn_records = grn_records.filter(material_type__iexact=material_type)
         
         grn_records = grn_records.annotate(
-            casted_first_date=ToDate("first_date")
+            casted_first_date=ToDateTime("first_date")
         )
         if start_date:
             start_date = datetime.strptime(start_date, "%Y-%m-%d").date()

@@ -229,7 +229,7 @@ def process_aggregate_daily_factory_scrap_moves():
 
     # Step 2: Process new records (> last_weight_time)
     new_records = FactoryScrapMove.objects.annotate(
-        casted_first_date=ToDate("first_date")
+        casted_first_date=ToDateTime("first_date")
     ).filter(casted_first_date__gt=last_weight_time) if last_weight_time else FactoryScrapMove.objects.all()
 
     if new_records.exists():

@@ -2,10 +2,15 @@ from django.db.models import DateTimeField, Func, CharField, Value, DateField
 from datetime import datetime
 import uuid, re
 
-class ToDate(Func):
+class ToDateTime(Func):
     function = 'TO_DATE'
     template = "%(function)s(%(expressions)s, 'DD.MM.YYYY')"
     output_field = DateTimeField()
+
+class ToDate(Func):
+    function = "TO_DATE"
+    template = "%(function)s(%(expressions)s, 'DD.MM.YYYY')"
+    output_field = DateField()
 
 class ToFormalDate(Func):
     function = 'TO_DATE'
@@ -66,3 +71,8 @@ def is_valid_uuid(uuid_string):
         return str(uuid_obj) == uuid_string  # Ensure it's properly formatted
     except ValueError:
         return False
+
+def normalize_date(date_val):
+    if isinstance(date_val, str):
+        return datetime.strptime(date_val, "%Y-%m-%d").date()
+    return date_val

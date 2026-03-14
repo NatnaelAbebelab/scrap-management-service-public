@@ -1,0 +1,96 @@
+from rest_framework import serializers
+
+from grn.models import GRN
+from grn.serializers import GRNCustomerSerializer
+
+
+class GRNPlainReportFilterSerializer(serializers.Serializer):
+    tin = serializers.CharField(required=False, allow_blank=True)
+    status = serializers.CharField(required=False, allow_blank=True)
+    material_type = serializers.CharField(required=False, allow_blank=True)
+    plate_no = serializers.CharField(required=False, allow_blank=True)
+    start_date = serializers.CharField(required=False, allow_blank=True)
+    end_date = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        start_date = attrs.get("start_date")
+        end_date = attrs.get("end_date")
+
+        if start_date and end_date:
+            if start_date > end_date:
+                raise serializers.ValidationError({
+                    "start_date": "start_date must be less than or equal to end_date."
+                })
+
+        return attrs
+
+class GRNPlainReportResponseSerializer(serializers.Serializer):
+    data = GRNCustomerSerializer(many=True)
+    totals = serializers.DictField()
+
+class GRNAggregateReportFilterSerializer(serializers.Serializer):
+    tin = serializers.CharField(required=False, allow_blank=True)
+    material_type = serializers.CharField(required=False, allow_blank=True)
+    plate_no = serializers.CharField(required=False, allow_blank=True)
+    start_date = serializers.DateField(required=False)
+    end_date = serializers.DateField(required=False)
+    status = serializers.CharField(required=False, allow_blank=True)
+
+    period = serializers.ChoiceField(
+        choices=["daily", "weekly", "monthly", "quarterly", "yearly"],
+        default="daily"
+    )
+
+    def validate(self, attrs):
+        start_date = attrs.get("start_date")
+        end_date = attrs.get("end_date")
+
+        if start_date and end_date:
+            if start_date > end_date:
+                raise serializers.ValidationError({
+                    "start_date": "start_date must be less than or equal to end_date."
+                })
+
+        return attrs
+
+class GRNAggregateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GRN
+        fields = "__all__"
+
+class GRNAggregateResponseSerializer(serializers.Serializer):
+    data = serializers.ListField()
+    totals = serializers.DictField()
+
+class GeneralMetricsResponseSerializer(serializers.Serializer):
+    weekly_purchase = serializers.IntegerField()
+    total_vendors = serializers.IntegerField()
+    total_grn = serializers.IntegerField()
+    total_approved_grn = serializers.IntegerField()
+    total_paid_grn = serializers.IntegerField()
+    total_paid_amount = serializers.DecimalField(max_digits=18, decimal_places=2)
+
+    # formatted text
+    weekly_purchase_text = serializers.CharField()
+    total_vendors_text = serializers.CharField()
+    total_grn_text = serializers.CharField()
+    total_approved_grn_text = serializers.CharField()
+    total_paid_grn_text = serializers.CharField()
+    total_paid_amount_text = serializers.CharField()
+
+class ScrapGradePercentageResponseSerializer(serializers.Serializer):
+    H = serializers.DecimalField(max_digits=10, decimal_places=2)
+    M = serializers.DecimalField(max_digits=10, decimal_places=2)
+    L = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+class YearlyPurchaseItemSerializer(serializers.Serializer):
+    month = serializers.CharField()
+    year = serializers.IntegerField()
+    total_net_price = serializers.DecimalField(max_digits=18, decimal_places=2)
+    total_net_weight = serializers.DecimalField(max_digits=18, decimal_places=2)
+    format_total_net_price = serializers.CharField()
+    format_net_weight = serializers.CharField()
+
+
+class YearlyPurchaseReportResponseSerializer(serializers.Serializer):
+    data = YearlyPurchaseItemSerializer(many=True)
