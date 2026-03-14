@@ -10,7 +10,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from helperFunctions.pagination import stock_balance_pagination
-from helperFunctions.validations import ToDate
+from helperFunctions.validations import ToDateTime
 from stock.models import StockBalance, BeginningBalance
 from stock.serializers import BeginningBalanceSerializer, StockBalanceFilterSerializer, \
     StockBalanceAggregatedReportSerializer, StockCardFilterSerializer, StockBalanceSerializer
@@ -93,7 +93,7 @@ def get_active_balance_summary(request):
             )
 
         stock_records = StockBalance.objects.annotate(
-            weight_date_dt=ToDate(F("weight_date"))
+            weight_date_dt=ToDateTime(F("weight_date"))
         ).filter(
             weight_date_dt__gte=active_balance.created_at
         ).aggregate(

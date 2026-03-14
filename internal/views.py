@@ -82,7 +82,7 @@ def daily_performance_calculator(tin, plate_no, start_date, end_date):
 
     # Annotate first_date conversion supporting both formats
     queryset = FactoryScrapMove.objects.annotate(
-        first_date_as_date=ToDate(F("first_date"))  # Convert first_date to DateField
+        first_date_as_date=ToDateTime(F("first_date"))  # Convert first_date to DateField
     )
 
     # Apply filters conditionally
@@ -328,7 +328,7 @@ def filter_factory_scrap_records(request):
             factory_records = factory_records.filter(material_type__iexact=material_type)
             
         factory_records = factory_records.annotate(
-            casted_first_date=ToDate("first_date")
+            casted_first_date=ToDateTime("first_date")
         )
         if start_date:
             start_date = datetime.strptime(start_date, "%Y-%m-%d").date()

@@ -6,7 +6,7 @@ from django.db.models import F, Sum
 from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
 from django.utils import timezone
 
-from helperFunctions.validations import ToDate
+from helperFunctions.validations import ToDateTime
 from stock.models import BeginningBalance, StockBalance
 from stock.serializers import StockBalanceSerializer
 from stock.type_enum import StockBalanceOn
@@ -116,7 +116,7 @@ def get_stock_balance_service(filters: dict):
 
     queryset = (
         StockBalance.objects
-        .annotate(weight_date_dt=ToDate(F("weight_date")))
+        .annotate(weight_date_dt=ToDateTime(F("weight_date")))
         .filter(weight_date_dt__range=(start_date, end_date))
         .order_by("weight_date_dt") # ascending = oldest first
     )
@@ -149,7 +149,7 @@ def get_stock_balance_aggregated_service(filters: dict):
 
     # Base queryset
     queryset = StockBalance.objects.annotate(
-        weight_date_dt=ToDate(F("weight_date"))
+        weight_date_dt=ToDateTime(F("weight_date"))
     ).filter(
         weight_date_dt__range=(start_date, end_date)
     )
@@ -202,7 +202,7 @@ def generate_stock_card_service(filters: dict):
 
     # Base queryset: convert weight_date string to date
     queryset = StockBalance.objects.annotate(
-        weight_date_dt=ToDate(F("weight_date"))
+        weight_date_dt=ToDateTime(F("weight_date"))
     ).filter(
         weight_date_dt__range=(start_date, end_date)
     )
