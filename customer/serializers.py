@@ -1,4 +1,3 @@
-from django.db.models import Sum
 from django.utils import timezone
 from rest_framework import serializers
 
@@ -135,3 +134,6 @@ class CustomerPaymentSerializer(serializers.Serializer):
         child=serializers.CharField(),
         allow_empty=False
     )
+
+class PurchaseCustomerReportFilterSerializer(serializers.Serializer):
+    tin = serializers.CharField(required=False, allow_blank=True)

@@ -12,7 +12,9 @@ from helperFunctions.pagination import customer_pagination
 from helperFunctions.validations import is_valid_uuid
 from utils.permissions import role_required
 from .models import PurchaseCustomer
-from .serializers import PurchaseCustomerCreateSerializer, PurchaseCustomerUpdateSerializer, CustomerPaymentSerializer, GRNSerializer
+from .serializers import PurchaseCustomerCreateSerializer, PurchaseCustomerUpdateSerializer, CustomerPaymentSerializer, \
+    GRNSerializer, PurchaseCustomerReportFilterSerializer
+from .services import generate_purchase_customer_plain_report, generate_purchase_customer_aggregated_report
 
 logger = logging.getLogger(__name__)
 # Create your views here.
@@ -207,3 +209,93 @@ def delete_customer(request, customer_id):
     except Exception as e:
         logger.error("Error occurred while deleting customer: %s", e)
         return JsonResponse({"result": "error", "message": "Operation failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def purchase_customer_report(request):
+    """
+    Purchase Customer Plain Report
+    Filter:
+        - TIN
+    """
+
+    serializer = PurchaseCustomerReportFilterSerializer(data=request.GET)
+
+    if not serializer.is_valid():
+        return JsonResponse({
+            "result": "error",
+            "message": "Invalid filter parameters",
+            "content": "Please provide valid TIN."
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        filters = serializer.validated_data
+
+        report = generate_purchase_customer_plain_report(filters)
+        paginated_result = customer_pagination(request, report["records"])
+
+        return JsonResponse({
+            "result": "success",
+            "message": "Report generated successfully",
+            "content": {
+                "summary": {
+                    "total_customers": report["totals"]["total_customers"] or 0,
+                    "total_paid_amount": report["totals"]["total_paid_amount"] or 0,
+                    "total_remaining_amount": report["totals"]["total_remaining_amount"] or 0,
+                },
+                "records": paginated_result.data,
+            }
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error("Error occurred while generating purchase customer plain report: %s", e)
+
+        return JsonResponse({
+            "result": "error",
+            "message": "Failed to generate report",
+            "content": str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def purchase_customer_aggregated_report(request):
+    """
+    Purchase Customer Aggregated Report
+    Grouped By:
+        - TIN
+    """
+
+    serializer = PurchaseCustomerReportFilterSerializer(data=request.GET)
+
+    if not serializer.is_valid():
+        return JsonResponse({
+            "result": "error",
+            "message": "Invalid filter parameters"
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        filters = serializer.validated_data
+
+        report = generate_purchase_customer_aggregated_report(filters)
+
+        return JsonResponse({
+            "result": "success",
+            "message": "Report generated successfully",
+            "content": {
+                "summary": {
+                    "total_customers": report["totals"]["total_customers"] or 0,
+                    "total_paid_amount": report["totals"]["total_paid_amount"] or 0,
+                    "total_remaining_amount": report["totals"]["total_remaining_amount"] or 0,
+                },
+                "records": report["records"]
+            }
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error("Error occurred while generating purchase customer aggregated report: %s", e)
+
+        return JsonResponse({
+            "result": "error",
+            "message": "Failed to generate report",
+            "content": str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

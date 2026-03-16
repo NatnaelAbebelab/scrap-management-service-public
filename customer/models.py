@@ -1,7 +1,10 @@
 import uuid
 from datetime import datetime
 
+from django.contrib.auth import get_user, get_user_model
 from django.db import models
+
+User = get_user_model()
 
 class PurchaseCustomer(models.Model):
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -13,10 +16,22 @@ class PurchaseCustomer(models.Model):
     business_name = models.CharField(blank=True)
     paid_amount = models.FloatField(default=0.00)
     remaining_amount = models.FloatField(default=0.00)
-    created_by = models.CharField(max_length=255, blank=True)
-    created_at = models.CharField(max_length=255, blank=True)
-    updated_by = models.CharField(max_length=255, blank=True)
-    updated_at = models.CharField(max_length=255, blank=True)
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="customer_created"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="customer_updated"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
     record_time = models.DateTimeField(auto_now=True)
     
     def __str__(self):
