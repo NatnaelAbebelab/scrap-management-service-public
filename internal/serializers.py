@@ -2,10 +2,177 @@ from rest_framework import serializers
 from .models import Agency, Agreement, AgreementRange, FactoryScrapMove, DailyScrapMoveAggregate
 from decimal import Decimal, ROUND_HALF_UP
 
+class FactoryScrapUploadSerializer(serializers.Serializer):
+    record_no = serializers.CharField()
+    plate_no = serializers.CharField(required=False, allow_blank=True)
+    first_weight = serializers.FloatField(required=False)
+    first_date = serializers.CharField()
+    first_time = serializers.CharField(required=False)
+    second_weight = serializers.FloatField(required=False)
+    second_date = serializers.CharField(required=False)
+    second_time = serializers.CharField(required=False)
+    net_weight = serializers.FloatField()
+    firm = serializers.CharField()
+    material = serializers.CharField()
+    driver_name = serializers.CharField(required=False)
+
+    def validate_firm(self, value):
+        tin = clean_tin(value)
+
+        if not is_valid_number(tin):
+            raise serializers.ValidationError("Invalid TIN number")
+
+        agency = Agency.objects.filter(TIN=tin).first()
+
+        if not agency:
+            raise serializers.ValidationError("TIN number is not registered")
+
+        return tin
+
+    def validate_material(self, value):
+
+        material = value.strip().upper()
+
+        if not is_valid_material(material.lower()):
+            raise serializers.ValidationError("Invalid material type")
+
+        return MaterialType[material].value
+
+class FactoryScrapFilterSerializer(serializers.Serializer):
+    tin = serializers.CharField(required=False)
+    material_type = serializers.CharField(required=False)
+    plate_no = serializers.CharField(required=False)
+    start_date = serializers.DateField(required=False)
+    end_date = serializers.DateField(required=False)
+    status = serializers.CharField(required=False)
+
+    def validate_tin(self, value):
+        if not clean_tin(value):
+            raise serializers.ValidationError("TIN has no proper value")
+
+        return clean_tin(value)
+
+    def validate_material_type(self, value):
+        if not is_valid_material(value.lower()):
+            raise serializers.ValidationError("Material type is not valid")
+
+        return value.lower()
+
+    def validate(self, data):
+        start = data.get("start_date")
+        end = data.get("end_date")
+
+        if start and end and start > end:
+            raise serializers.ValidationError(
+                "Start date must be before end date"
+            )
+
+        return data
+
+class AgencyCreateSerializer(serializers.Serializer):
+    first_name = serializers.CharField(max_length=255)
+    last_name = serializers.CharField(max_length=255)
+    tin = serializers.CharField(max_length=50)
+    business_name = serializers.CharField(max_length=255)
+
+    def validate(self, data):
+        first_name = data.get("fname", "").strip()
+        last_name = data.get("last_name", "").strip()
+        tin = data.get("tin", "").strip()
+        business_name = data.get("business_name", "").strip()
+
+        if not first_name or not last_name:
+            raise serializers.ValidationError(
+                "Agency officer name must be provided"
+            )
+
+        if not tin or not is_digit(tin):
+            raise serializers.ValidationError(
+                "TIN must contain only digits"
+            )
+
+        if not business_name:
+            raise serializers.ValidationError(
+                "Business name must be provided"
+            )
+
+        agency_tin = clean_tin(tin)
+
+        if Agency.all_objects.filter(TIN=agency_tin).exists():
+            raise serializers.ValidationError(f"TIN {tin} is already registered")
+
+        data["TIN"] = agency_tin
+
+        return data
+
+class AgencyUpdateSerializer(serializers.Serializer):
+    agency = serializers.UUIDField()
+    first_name = serializers.CharField(required=False, allow_blank=True)
+    last_name = serializers.CharField(required=False, allow_blank=True)
+    tin = serializers.CharField(required=False, allow_blank=True)
+    business_name = serializers.CharField(required=False, allow_blank=True)
+    agreement = serializers.UUIDField(required=False)
+
+    def validate(self, data):
+
+        agency_id = data.get("agency")
+        tin = data.get("tin")
+        business_name = data.get("business_name")
+
+        agency = Agency.objects.filter(_id=agency_id).first()
+
+        if not agency:
+            raise serializers.ValidationError("Agency doesn't exist")
+
+        if tin:
+            if not is_digit(tin):
+                raise serializers.ValidationError(f"TIN {tin} must be digits")
+
+            if Agency.objects.filter(Q(TIN=tin) & ~Q(_id=agency_id)).exists():
+                raise serializers.ValidationError(f"TIN {tin} is already used")
+
+        if business_name:
+            if Agency.objects.filter(
+                Q(business_name__iexact=business_name) & ~Q(_id=agency_id)
+            ).exists():
+                raise serializers.ValidationError(
+                    f"Business name '{business_name}' is already used"
+                )
+
+        data["agency_instance"] = agency
+
+        return data
+
 class AgencySerializer(serializers.ModelSerializer):
     class Meta:
         model = Agency
         fields = '__all__'  # Include all fields
+
+class AgreementTierSerializer(serializers.Serializer):
+    min_weight = serializers.FloatField(required=False, default=0)
+    max_weight = serializers.CharField()
+    rate = serializers.FloatField()
+
+class AgreementCreateSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    agency = serializers.UUIDField()
+    material_type = serializers.CharField()
+
+    agreement_proof = serializers.CharField()
+
+    contract_details = serializers.DictField()
+
+    agreements = AgreementWeightRangeSerializer(many=True)
+
+    def validate_material_type(self, value):
+
+        value = value.lower()
+
+        if not is_valid_material(value):
+            raise serializers.ValidationError("Material type is not valid")
+
+        return value
+
 class AgreementRangeSerializer(serializers.ModelSerializer):
     class Meta:
         model = AgreementRange
@@ -19,13 +186,55 @@ class AgreementSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def get_agreement_ranges(self, obj):
-        # Fetch AgreementRange objects where agreement field matches Agreement _id
         ranges = AgreementRange.objects.filter(agreement=str(obj._id))
         return AgreementRangeSerializer(ranges, many=True).data
+
+class AgreementUpdateSerializer(serializers.Serializer):
+    agreement = serializers.UUIDField()
+    agency = serializers.UUIDField()
+    tin = serializers.CharField()
+    material_type = serializers.CharField(required=False)
+    status = serializers.CharField(required=False)
+    name = serializers.CharField(required=False)
+    agreement_proof = serializers.CharField(required=False)
+
+    contract_details = serializers.DictField(required=False)
+
+    def validate_material_type(self, value):
+
+        value = value.lower()
+
+        if not is_valid_material(value):
+            raise serializers.ValidationError("Material type is not valid")
+
+        return value
+
+    def validate_status(self, value):
+
+        value = value.lower()
+
+        if not is_valid_status(value):
+            raise serializers.ValidationError("Agreement status is not valid")
+
+        return value
+
+class AgreementRangeUpdateItemSerializer(serializers.Serializer):
+    _id = serializers.UUIDField()
+    min_weight = serializers.FloatField(required=False)
+    max_weight = serializers.FloatField(required=False)
+    rate = serializers.FloatField(required=False)
+
+class AgreementRangeUpdateSerializer(serializers.Serializer):
+    agreement = serializers.UUIDField()
+    ranges = serializers.DictField(
+        child=AgreementRangeUpdateItemSerializer()
+    )
+
 class FactoryScrapMoveSerializer(serializers.ModelSerializer):
     class Meta:
         model = FactoryScrapMove
-        fields = '__all__' # Include all fields
+        fields = '__all__'
+
 class DailyScrapMoveAggregateSerializer(serializers.ModelSerializer):
     class Meta:
         model = DailyScrapMoveAggregate
@@ -38,7 +247,6 @@ class DailyScrapMoveAggregateSerializer(serializers.ModelSerializer):
         if data.get('net_price') is not None:
             data['net_price'] = Decimal(str(data['net_price'])).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         return data
-
 
 class IndividualRecordSerializer(serializers.Serializer):
     record_id = serializers.UUIDField()
