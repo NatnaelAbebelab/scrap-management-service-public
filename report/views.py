@@ -194,8 +194,8 @@ def daily_internal_aggregate_report(queryset, by_tin=False, by_material_type=Fal
     if by_tin and queryset.exists():
         agency = Agency.objects.filter(TIN=tin).first()
         agency_info = {
-            "fname": string.capwords(agency.fname),
-            "lname": string.capwords(agency.lname),
+            "fname": string.capwords(agency.first_name),
+            "lname": string.capwords(agency.last_name),
             "TIN": agency.TIN,
             "business_name": string.capwords(agency.business_name)
         }
@@ -260,8 +260,8 @@ def weekly_internal_aggregate_report(queryset, by_tin=False, by_material_type=Fa
     if by_tin and queryset.exists():
         agency = Agency.objects.filter(TIN=tin).first()
         agency_info = {
-            "fname": string.capwords(agency.fname),
-            "lname": string.capwords(agency.lname),
+            "fname": string.capwords(agency.first_name),
+            "lname": string.capwords(agency.last_name),
             "TIN": agency.TIN,
             "business_name": string.capwords(agency.business_name)
         }
@@ -326,8 +326,8 @@ def monthly_internal_aggregate_report(queryset, by_tin=False, by_material_type=F
     if by_tin and queryset.exists():
         agency = Agency.objects.filter(TIN=tin).first()
         agency_info = {
-            "fname": string.capwords(agency.fname),
-            "lname": string.capwords(agency.lname),
+            "fname": string.capwords(agency.first_name),
+            "lname": string.capwords(agency.last_name),
             "TIN": agency.TIN,
             "business_name": string.capwords(agency.business_name)
         }
@@ -392,8 +392,8 @@ def yearly_internal_aggregate_report(queryset, by_tin=False, by_material_type=Fa
     if by_tin and queryset.exists():
         agency = Agency.objects.filter(TIN=tin).first()
         agency_info = {
-            "fname": string.capwords(agency.fname),
-            "lname": string.capwords(agency.lname),
+            "fname": string.capwords(agency.first_name),
+            "lname": string.capwords(agency.last_name),
             "TIN": agency.TIN,
             "business_name": string.capwords(agency.business_name)
         }

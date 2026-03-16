@@ -1,0 +1,443 @@
+from helperFunctions.validations import is_valid_uuid, clean_tin
+
+
+def process_scrap_excel(file, user):
+
+    skipped_records = {
+        "dropped_rows": [],
+        "invalid_data": []
+    }
+
+    df = pd.read_excel(file, engine="openpyxl")
+
+    required_columns = ["RECORD NO", "MATERIAL", "FIRM", "NET", "DATE1"]
+
+    rows_to_drop = df[df[required_columns].isna().any(axis=1)]
+
+    for index, row in rows_to_drop.iterrows():
+
+        empty_cols = row[required_columns].isna()[row[required_columns].isna()].index.tolist()
+
+        skipped_records["dropped_rows"].append({
+            "row": index,
+            "column": empty_cols,
+            "case": f"Missing values in {empty_cols}"
+        })
+
+    df.dropna(subset=required_columns, inplace=True)
+
+    records = df.to_dict(orient="records")
+
+    created_count = 0
+
+    for record in records:
+
+        data = {
+            "record_no": record["RECORD NO"],
+            "plate_no": record.get("PLATE NO"),
+            "first_weight": record.get("1ST WEIGHING"),
+            "first_date": record.get("DATE1"),
+            "first_time": record.get("TIME1"),
+            "second_weight": record.get("2ND WEIGHING"),
+            "second_date": record.get("DATE2"),
+            "second_time": record.get("TIME2"),
+            "net_weight": record.get("NET"),
+            "firm": record.get("FIRM"),
+            "material": record.get("MATERIAL"),
+            "driver_name": record.get("Driver name "),
+        }
+
+        serializer = FactoryScrapUploadSerializer(data=data)
+
+        if not serializer.is_valid():
+
+            skipped_records["invalid_data"].append({
+                "record_no": record.get("RECORD NO"),
+                "errors": serializer.errors
+            })
+
+            continue
+
+        validated = serializer.validated_data
+
+        try:
+
+            FactoryScrapMove.objects.create(
+                record_no=validated["record_no"],
+                plate_no=validated.get("plate_no"),
+                first_weight=validated.get("first_weight"),
+                first_date=validated.get("first_date"),
+                first_time=validated.get("first_time"),
+                second_weight=validated.get("second_weight"),
+                second_date=validated.get("second_date"),
+                second_time=validated.get("second_time"),
+                net_weight=validated["net_weight"],
+                agency=validated["firm"],
+                material_type=validated["material"],
+                driver_name=validated.get("driver_name"),
+                created_by=user.username,
+                updated_by=user.username,
+            )
+
+            created_count += 1
+
+        except IntegrityError:
+
+            skipped_records["invalid_data"].append({
+                "record_no": record.get("RECORD NO"),
+                "case": "Duplicate record number"
+            })
+
+    return {
+        "created_records": created_count,
+        "skipped_records": skipped_records
+    }
+
+def get_factory_scrap_records_service(user):
+    """
+    Fetch factory scrap records based on a role
+    """
+
+    role = get_user_role(user)
+
+    if not role:
+        raise ValueError("User role not found")
+
+    allowed_status = Status.get_status_by_role(role)
+
+    queryset = (
+        FactoryScrapMove.objects
+        .filter(status__in=allowed_status)
+        .order_by("-record_time")
+    )
+
+    return queryset, allowed_status
+
+def filter_factory_scrap_records_service(filters):
+    queryset = (
+        FactoryScrapMove.objects
+        .filter(is_deleted=False)
+        .order_by("-record_time")
+    )
+
+    # --- TIN Filter ---
+    tin = filters.get("tin")
+
+    if tin:
+        agency = Agency.objects.filter(TIN=tin).first()
+        if agency:
+            queryset = queryset.filter(agency=tin)
+
+    # --- Material Type ---
+    material_type = filters.get("material_type")
+
+    if material_type:
+        queryset = queryset.filter(material_type__iexact=material_type)
+
+    # --- Status Filters ---
+    status = filters.get("status")
+
+    if status:
+        queryset = queryset.filter(status=status)
+
+    # --- Plate Number ---
+    plate_no = filters.get("plate_no")
+
+    if plate_no:
+        queryset = queryset.filter(plate_no__iexact=plate_no)
+
+    # --- Date Filters ---
+    start_date = filters.get("start_date")
+    end_date = filters.get("end_date")
+
+    if start_date or end_date:
+
+        queryset = queryset.annotate(
+            casted_first_date=ToDateTime("first_date")
+        )
+
+        if start_date:
+            queryset = queryset.filter(
+                casted_first_date__date__gte=start_date
+            )
+
+        if end_date:
+            queryset = queryset.filter(
+                casted_first_date__date__lte=end_date
+            )
+
+    return queryset
+
+def create_agency(validated_data, user, today):
+
+    agency = Agency.objects.create(
+        fname=validated_data["first_name"].strip(),
+        lname=validated_data["last_name"].strip(),
+        TIN=validated_data["TIN"],
+        business_name=validated_data["business_name"].strip(),
+        created_by=user,
+        updated_by=user
+    )
+
+    return agency
+
+def get_agencies_service():
+    """
+    Fetch active agencies ordered by the latest record time
+    Optimized using only() to reduce a database load
+    """
+
+    queryset = (
+        Agency.objects
+        .filter(is_deleted=False)
+        .only(
+            "first_name",
+            "last_name",
+            "TIN",
+            "business_name",
+            "record_time"
+        )
+        .order_by("-record_time")
+    )
+
+    return queryset
+
+def update_agency_service(validated_data, user):
+
+    agency = validated_data["agency_instance"]
+
+    update_fields = {}
+
+    fields = ["first_name", "last_name", "tin", "business_name", "agreement"]
+
+    for field in fields:
+        value = validated_data.get(field)
+
+        if value:
+            if field == "tin":
+                update_fields["TIN"] = value
+            else:
+                update_fields[field] = value
+
+    update_fields["updated_by"] = user
+
+    for key, value in update_fields.items():
+        setattr(agency, key, value)
+
+    agency.save()
+
+    return agency
+
+def delete_agency_service(agency_id, user):
+    if not is_valid_uuid(agency_id):
+        raise ValueError(
+            "Invalid agency ID"
+        )
+    agency = get_object_or_404(Agency, _id=agency_id)
+
+    agency.delete()
+    agency.updated_by = user
+    return agency
+
+def restore_agency_service(tin, user):
+    if not clean_tin(tin):
+        raise ValueError(
+            "Invalid agency TIN"
+        )
+
+    agency = get_object_or_404(
+        Agency.all_objects,
+        TIN=tin,
+        is_deleted=True
+    )
+
+    agency.restore()
+    agency.updated_by = user
+
+    return agency
+
+def add_agreement_service(validated_data, user):
+    agency_id = validated_data["agency"]
+    material_type = validated_data["material_type"]
+    ranges = validated_data["agreements"]
+    proof_file_name = validated_data["agreement_proof"]
+
+    agency = Agency.objects.filter(_id=agency_id).first()
+
+    if not agency:
+        raise ValueError("Agency not found")
+
+    tin = agency.TIN
+
+    agreement = Agreement.objects.filter(
+        Q(TIN=tin) &
+        Q(agency=agency_id) &
+        Q(material_type__iexact=material_type)
+    ).first()
+
+    if agreement:
+        raise ValueError("Agency agreement under material type already exists")
+
+    # validate ranges
+    for i, params in enumerate(ranges):
+
+        min_weight = float(params.get("min_weight", 0))
+        max_weight = params.get("max_weight")
+
+        if max_weight == "MAX_FLAG":
+            params["max_weight"] = MAX_FLOAT
+            max_weight = MAX_FLOAT
+
+        if min_weight > float(max_weight):
+            raise ValueError("Minimum weight is greater than Maximum weight")
+
+        if i < len(ranges) - 1:
+            next_min = float(ranges[i + 1]["min_weight"])
+
+            if float(max_weight) != next_min:
+                raise ValueError(
+                    f"Max weight of range {i+1} must equal min weight of range {i+2}"
+                )
+
+    agreement = Agreement.objects.create(
+        agreement_name=validated_data["name"].lower(),
+        agency=agency_id,
+        TIN=tin,
+        material_type=material_type,
+        effective_date=validated_data["contract_details"]["effective_start_date"],
+        duration=validated_data["contract_details"]["contract_duration_months"],
+        agreement_proof=proof_file_name,
+        created_by=user,
+        updated_by=user
+    )
+
+    for params in ranges:
+        AgreementRange.objects.create(
+            agreement=agreement,
+            agency=agency_id,
+            min_weight=params["min_weight"],
+            max_weight=params["max_weight"],
+            rate=params["rate"],
+            created_by=user,
+            updated_by=user
+        )
+
+    return agreement
+
+def update_agreement_service(validated_data, user):
+    agreement_id = validated_data["agreement"]
+    agency_id = validated_data["agency"]
+    tin = clean_tin(validated_data["tin"])
+
+    agreement = Agreement.objects.filter(_id=agreement_id).first()
+
+    if not agreement:
+        raise ValueError("Agreement does not exist")
+
+    agency = Agency.objects.filter(
+        _id=agency_id,
+        TIN=tin
+    ).first()
+
+    if not agency:
+        raise ValueError(f"Agency does not exist or TIN {tin} is mismatched")
+
+    # Update fields dynamically
+    update_fields = {}
+
+    if validated_data.get("name"):
+        update_fields["agreement_name"] = validated_data["name"]
+
+    if validated_data.get("material_type"):
+        update_fields["material_type"] = validated_data["material_type"]
+
+    if validated_data.get("status"):
+        status_obj = Status.get_status(validated_data["status"])
+        update_fields["status"] = status_obj.status_value
+
+    if validated_data.get("contract_details"):
+        contract = validated_data["contract_details"]
+
+        if contract.get("effective_start_date"):
+            update_fields["effective_date"] = contract["effective_start_date"]
+
+        if contract.get("contract_duration_months"):
+            update_fields["duration"] = contract["contract_duration_months"]
+
+    if validated_data.get("agreement_proof"):
+        update_fields["agreement_proof"] = validated_data["agreement_proof"]
+
+    if update_fields:
+
+        update_fields["updated_by"] = user
+
+        Agreement.objects.filter(_id=agreement_id).update(**update_fields)
+
+        agreement.refresh_from_db()
+
+    return agreement
+
+def update_agreement_ranges(validated_data, user):
+    """
+    Service layer for updating agreement ranges
+    """
+    agreement_id = validated_data["agreement"]
+    ranges = validated_data["ranges"]
+
+    with transaction.atomic():
+        for range_id, range_data in ranges.items():
+            try:
+                agreement_range = AgreementRange.objects.get(
+                    _id=range_id,
+                    agreement_id=agreement_id
+                )
+            except AgreementRange.DoesNotExist:
+                raise ValueError(
+                    f"Range {range_id} not found under this agreement"
+                )
+
+            update_fields = {
+                "updated_by": user
+            }
+
+            if "min_weight" in range_data:
+                update_fields["min_weight"] = range_data["min_weight"]
+
+            if "max_weight" in range_data:
+                update_fields["max_weight"] = range_data["max_weight"]
+
+            if "rate" in range_data:
+                update_fields["rate"] = range_data["rate"]
+
+            # Remove if no real update fields
+            if len(update_fields) > 3:
+                AgreementRange.objects.filter(
+                    _id=range_id
+                ).update(**update_fields)
+
+    return agreement_range
+
+def delete_agreement_service(agreement_id):
+    """
+    Delete agreement and its related ranges
+    """
+
+    with transaction.atomic():
+        if not is_valid_uuid(agreement_id):
+            raise ValueError("Invalid agreement ID")
+
+        # Get agreement
+        agreement = get_object_or_404(
+            Agreement,
+            _id=agreement_id
+        )
+
+        # Delete related ranges first
+        AgreementRange.objects.filter(
+            agreement_id=agreement_id
+        ).delete()
+
+        # Delete agreement
+        agreement.delete()
+
+    return True
