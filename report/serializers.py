@@ -91,6 +91,5 @@ class YearlyPurchaseItemSerializer(serializers.Serializer):
     format_total_net_price = serializers.CharField()
     format_net_weight = serializers.CharField()
 
-
 class YearlyPurchaseReportResponseSerializer(serializers.Serializer):
     data = YearlyPurchaseItemSerializer(many=True)
