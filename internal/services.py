@@ -488,7 +488,8 @@ def filter_daily_scrap_move_aggregate(filters):
 
 def calculate_daily_performance(filters):
     """
-    Calculates driver performance within a given weight date range.
+    Calculates driver performance within a given weight date range
+    + returns summary and optional agency info
     """
     try:
         tin = filters.get("tin")
@@ -516,6 +517,7 @@ def calculate_daily_performance(filters):
 
         queryset = queryset.filter(query_filter)
 
+        # Detailed aggregation (per plate_no + date)
         aggregated_data = (
             queryset
             .values("plate_no", "first_date")
@@ -529,11 +531,45 @@ def calculate_daily_performance(filters):
             .order_by("plate_no", "first_date")
         )
 
-        return aggregated_data
+        # Summary (overall totals)
+        summary = queryset.aggregate(
+            total_first_weight=Round(Sum(Cast("first_weight", FloatField())), 2),
+            total_second_weight=Round(Sum(Cast("second_weight", FloatField())), 2),
+            total_net_weight=Round(Sum(Cast("net_weight", FloatField())), 2),
+            total_records=Count("_id"),
+        )
 
-    except Exception as e:
-        logger.error("Error occurred while calculating daily performance: %s", e)
-        raise FilterException("Error occurred while calculating daily performance")
+        # Normalize None → 0
+        summary = {
+            "total_first_weight": summary.get("total_first_weight") or 0,
+            "total_second_weight": summary.get("total_second_weight") or 0,
+            "total_net_weight": summary.get("total_net_weight") or 0,
+            "total_records": summary.get("total_records") or 0,
+        }
+
+        # Agency info (if TIN provided)
+        agency_info = None
+        if tin:
+            agency = Agency.objects.filter(TIN=tin, is_deleted=False).first()
+            if agency:
+                agency_info = {
+                    "first_name": agency.first_name,
+                    "last_name": agency.last_name,
+                    "TIN": agency.TIN,
+                    "business_name": agency.business_name,
+                    "remaining_amount": agency.remaining_amount,
+                    "paid_amount": agency.paid_amount,
+                }
+
+        return {
+            "data": list(aggregated_data),
+            "summary": summary,
+            "agency_info": agency_info
+        }
+
+    except Exception:
+        logger.error("Error occurred while calculating daily performance")
+        raise Exception("Error occurred while calculating daily performance")
 
 def approve_daily_scrap_move_records(valid_ids):
     """
