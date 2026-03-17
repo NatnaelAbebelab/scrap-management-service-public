@@ -248,6 +248,99 @@ class DailyScrapMoveAggregateSerializer(serializers.ModelSerializer):
             data['net_price'] = Decimal(str(data['net_price'])).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
         return data
 
+class DailyScrapMoveFilterSerializer(serializers.Serializer):
+    tin = serializers.CharField(required=False, allow_blank=True)
+    material_type = serializers.CharField(required=False, allow_blank=True)
+    start_date = serializers.DateField(required=False)
+    end_date = serializers.DateField(required=False)
+    status = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_tin(self, value):
+        if value and not clean_tin(value):
+            raise serializers.ValidationError("TIN has no proper value")
+        return clean_tin(value)
+
+    def validate_material_type(self, value):
+        if value and not is_valid_material(value):
+            raise serializers.ValidationError("Invalid material type")
+        return value
+
+class DailyPerformanceFilterSerializer(serializers.Serializer):
+    tin = serializers.CharField(required=False, allow_blank=True)
+    plate_no = serializers.CharField(required=False, allow_blank=True)
+    start_date = serializers.CharField(required=False, allow_blank=True)
+    end_date = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_tin(self, value):
+        if value:
+            if not clean_tin(value):
+                raise serializers.ValidationError("TIN has no proper value")
+            return clean_tin(value)
+        return value
+
+    def validate(self, data):
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        def parse_date(date):
+            if not date:
+                return None
+            return (
+                datetime.strptime(date, "%d.%m.%Y").date()
+                if "." in date
+                else datetime.strptime(date, "%Y-%m-%d").date()
+            )
+
+        data["start_date"] = parse_date(start_date)
+        data["end_date"] = parse_date(end_date)
+
+        return data
+
+class ApproveDailyScrapMoveSerializer(serializers.Serializer):
+    data = serializers.ListField(
+        child=serializers.CharField(),
+        required=True,
+        allow_empty=False
+    )
+
+    def validate_data(self, value):
+        valid_ids = [uid for uid in value if is_valid_uuid(uid)]
+
+        if not valid_ids:
+            raise serializers.ValidationError("No valid UUIDs provided")
+
+        return valid_ids
+
+class ApproveFactoryManagerSerializer(serializers.Serializer):
+    data = serializers.ListField(
+        child=serializers.CharField(),
+        required=True,
+        allow_empty=False
+    )
+
+    def validate_data(self, value):
+        valid_ids = [uid for uid in value if is_valid_uuid(uid)]
+
+        if not valid_ids:
+            raise serializers.ValidationError("No valid UUIDs provided")
+
+        return valid_ids
+
+class PayAgencyFinanceSerializer(serializers.Serializer):
+    data = serializers.ListField(
+        child=serializers.CharField(),
+        required=True,
+        allow_empty=False
+    )
+
+    def validate_data(self, value):
+        valid_ids = [uid for uid in value if is_valid_uuid(uid)]
+
+        if not valid_ids:
+            raise serializers.ValidationError("No valid UUIDs provided")
+
+        return valid_ids
+
 class IndividualRecordSerializer(serializers.Serializer):
     record_id = serializers.UUIDField()
     daily_net_weight = serializers.FloatField()

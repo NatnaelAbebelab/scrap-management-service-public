@@ -441,3 +441,194 @@ def delete_agreement_service(agreement_id):
         agreement.delete()
 
     return True
+
+def filter_daily_scrap_move_aggregate(filters):
+    """
+    Service to filter daily scrap move aggregates
+    """
+    try:
+        queryset = DailyScrapMoveAggregate.objects.all().order_by("-record_time")
+
+        tin = filters.get("tin")
+        material_type = filters.get("material_type")
+        start_date = filters.get("start_date")
+        end_date = filters.get("end_date")
+        status = filters.get("status")
+
+        # TIN filter
+        if tin:
+            agency = Agency.objects.filter(TIN=tin).first()
+            if agency:
+                queryset = queryset.filter(TIN=tin)
+
+        # Material type filter
+        if material_type:
+            queryset = queryset.filter(material_type__iexact=material_type)
+
+        # Status filtering
+        if status:
+            queryset = queryset.filter(status=status)
+
+        # Date filtering
+        queryset = queryset.annotate(
+            casted_weight_date=ToFormalDate("weight_date")
+        )
+
+        if start_date:
+            queryset = queryset.filter(casted_weight_date__gte=start_date)
+
+        if end_date:
+            queryset = queryset.filter(casted_weight_date__lte=end_date)
+
+        return queryset
+
+    except Exception as e:
+        logger.error("Error occurred while filtering daily move aggregate: %s", e)
+        raise FilterException("Error occurred while filtering daily move aggregate")
+
+def calculate_daily_performance(filters):
+    """
+    Calculates driver performance within a given weight date range.
+    """
+    try:
+        tin = filters.get("tin")
+        plate_no = filters.get("plate_no")
+        start_date = filters.get("start_date")
+        end_date = filters.get("end_date")
+
+        queryset = FactoryScrapMove.objects.annotate(
+            first_date_as_date=ToDateTime(F("first_date"))
+        )
+
+        query_filter = Q()
+
+        if tin:
+            query_filter &= Q(agency=tin)
+
+        if plate_no:
+            query_filter &= Q(plate_no__iexact=plate_no)
+
+        if start_date:
+            query_filter &= Q(first_date_as_date__gte=start_date)
+
+        if end_date:
+            query_filter &= Q(first_date_as_date__lte=end_date)
+
+        queryset = queryset.filter(query_filter)
+
+        aggregated_data = (
+            queryset
+            .values("plate_no", "first_date")
+            .annotate(
+                total_first_weight=Round(Sum(Cast("first_weight", FloatField())), 2),
+                total_second_weight=Round(Sum(Cast("second_weight", FloatField())), 2),
+                total_net_weight=Round(Sum(Cast("net_weight", FloatField())), 2),
+                total_records=Count("_id"),
+                driver_names=ArrayAgg("driver_name", distinct=True),
+            )
+            .order_by("plate_no", "first_date")
+        )
+
+        return aggregated_data
+
+    except Exception as e:
+        logger.error("Error occurred while calculating daily performance: %s", e)
+        raise FilterException("Error occurred while calculating daily performance")
+
+def approve_daily_scrap_move_records(valid_ids):
+    """
+    Approve daily scrap move records by supervisor
+    """
+    try:
+        updated_count = (
+            DailyScrapMoveAggregate.objects
+            .filter(_id__in=valid_ids)
+            .exclude(status="approved_manager")
+            .update(
+                status="approved"
+            )
+        )
+
+        return updated_count
+
+    except Exception as e:
+        logger.error("Error occurred while approving daily scrap mov't: %s", e )
+        raise Exception("Error occurred while approving daily scrap mov't")
+
+def approve_factory_manager_records(valid_ids):
+    """
+    Factory manager approval for daily scrap move records
+    """
+    try:
+        updated_count = (
+            DailyScrapMoveAggregate.objects
+            .filter(_id__in=valid_ids)
+            .update(
+                status="approved_manager",
+                updated_at=today,
+                record_time=timezone.now()
+            )
+        )
+
+        return updated_count
+
+    except Exception as e:
+        logger.error("Error occurred while approving daily scrap mov't: %s", e)
+
+        raise Exception(
+            "Error occurred while approving daily scrap mov't"
+        )
+
+def pay_agency_finance_service(valid_ids):
+    """
+    Pay agency:
+    - Update DailyScrapMoveAggregate status
+    - Update Agency paid & remaining amounts
+    """
+    try:
+        with transaction.atomic():
+            # Aggregate total payment per TIN
+            affected_agencies = (
+                DailyScrapMoveAggregate.objects
+                .filter(_id__in=valid_ids)
+                .values("TIN")
+                .annotate(
+                    total_paid=Sum(Cast("net_price", FloatField()))
+                )
+            )
+
+            # Update scrap move status
+            updated_count = (
+                DailyScrapMoveAggregate.objects
+                .filter(_id__in=valid_ids)
+                .update(
+                    status="paid",
+                    updated_at=today,
+                    record_time=timezone.now()
+                )
+            )
+
+            # Update Agency balances
+            for agency_data in affected_agencies:
+                tin = agency_data["TIN"]
+                paid_amount = float(agency_data["total_paid"] or 0)
+
+                Agency.objects.filter(TIN=tin).update(
+                    paid_amount=Round(
+                        Cast(F("paid_amount"), FloatField()) + paid_amount, 2
+                    ),
+                    remaining_amount=Round(
+                        Cast(F("remaining_amount"), FloatField()) - paid_amount, 2
+                    ),
+                    updated_at=today,
+                    record_time=timezone.now()
+                )
+
+        return {
+            "updated_records": updated_count,
+            "affected_agencies": len(affected_agencies)
+        }
+
+    except Exception as e:
+        logger.exception("Error occurred while processing agency payment: %s", e)
+        raise ServiceException("Error occurred while processing agency payment")

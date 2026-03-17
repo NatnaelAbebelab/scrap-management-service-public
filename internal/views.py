@@ -24,98 +24,6 @@ logger = logging.getLogger(__name__)
 today = datetime.today().strftime('%Y-%m-%d')
 MAX_FLOAT = sys.float_info.max  # Largest finite float in Python
 
-def filter_daily_scrap_move_aggregate(role, tin, material_type, start_date, end_date, status):
-    """
-    Get daily scrap move aggregate based on the filters
-    """
-    allowed_status = Status.get_status_by_role(role)
-    if status and status not in allowed_status:
-        raise StatusException(f"{status} is not belong to {role}")
-    try:
-        # Base QuerySet
-        daily_scrap_move = DailyScrapMoveAggregate.objects.all().order_by("-record_time")
-        
-        # apply filter cases
-        
-        # Filter by TIN (Check if tin exists in Agency model)
-        if tin and clean_tin(tin):
-            agency = Agency.objects.filter(TIN=tin).first()
-            if agency:
-                daily_scrap_move = daily_scrap_move.filter(TIN=tin)
-        
-        # Filter by material type
-        if material_type and is_valid_material(material_type):
-            daily_scrap_move = daily_scrap_move.filter(material_type__iexact=material_type)
-
-        daily_scrap_move = daily_scrap_move.annotate(
-            casted_weight_date=ToFormalDate("weight_date")
-        )
-        if start_date:
-            start_date = datetime.strptime(start_date, "%Y-%m-%d").date()
-            daily_scrap_move = daily_scrap_move.filter(casted_weight_date__gte=start_date)
-        if end_date:
-            end_date = datetime.strptime(end_date, "%Y-%m-%d").date()
-            daily_scrap_move = daily_scrap_move.filter(casted_weight_date__lte=end_date)
-
-        # Filter by status
-        if status:
-            daily_scrap_move = daily_scrap_move.filter(status=status)
-        else:
-            daily_scrap_move = daily_scrap_move.filter(status__in=allowed_status)
-        
-        return daily_scrap_move.all()
-    
-    except Exception as e:
-        logger.error("Error occurred while filtering daily move aggregate: %s", e)
-        return FilterException("Error occurred while filtering daily move aggregate")
-def daily_performance_calculator(tin, plate_no, start_date, end_date):
-    """
-    Calculates driver performance within a given weight date range.
-    Returns total first weight, second weight, net weight, and record count.
-    """
-
-    # Annotate first_date conversion supporting both formats
-    queryset = FactoryScrapMove.objects.annotate(
-        first_date_as_date=ToDateTime(F("first_date"))  # Convert first_date to DateField
-    )
-
-    # Apply filters conditionally
-    filters = Q()
-
-    if tin and clean_tin(tin):
-        filters &= Q(agency=tin)  # TIN is stored in the "agency" field
-
-    if plate_no:
-        filters &= Q(plate_no__iexact=plate_no)
-    if start_date:
-        # Ensure start_date is in the correct format (YYYY-MM-DD) for comparison
-        start_date_obj = datetime.strptime(start_date, "%d.%m.%Y") if "." in start_date else datetime.strptime(start_date, "%Y-%m-%d")
-        filters &= Q(first_date_as_date__gte=start_date_obj.date())  # Convert to date object for comparison
-
-    if end_date:
-        # Ensure end_date is in the correct format (YYYY-MM-DD) for comparison
-        end_date_obj = datetime.strptime(end_date, "%d.%m.%Y") if "." in end_date else datetime.strptime(end_date, "%Y-%m-%d")
-        filters &= Q(first_date_as_date__lte=end_date_obj.date())  # Convert to date object for comparison
-
-    # Apply filters to queryset
-    queryset = queryset.filter(filters)
-
-    # Perform aggregation
-    aggregated_data = (
-        queryset
-        .values("plate_no", "first_date")
-        .annotate(
-            total_first_weight=Round(Sum(Cast("first_weight", FloatField())), 2),
-            total_second_weight=Round(Sum(Cast("second_weight", FloatField())), 2),
-            total_net_weight=Round(Sum(Cast("net_weight", FloatField())), 2),
-            total_records=Count("_id"),
-            driver_names=ArrayAgg("driver_name", distinct=True),
-        )
-        .order_by("plate_no", "first_date")
-    )
-
-    return {"daily_performance_calculation": list(aggregated_data)}
-
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "weight_man"])])
 def upload_excel_file(request):
@@ -593,140 +501,173 @@ def delete_agreement(request, agreement_id):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector", "purchase_head", "supervisor", "factory_manager", "finance", "manager"])])
+@permission_classes([IsAuthenticated])
 def get_daily_scrap_move_aggregate(request):
     """
     Fetch daily aggregated scrap move
     """
-    try :
-        role = get_user_role(request.user)
-        get_daily_scrap_move = filter_daily_scrap_move_aggregate(role, "", "", "", "", "")
-        paginated_records = daily_scrap_move_pagination(request, get_daily_scrap_move)
+    try:
+        serializer = DailyScrapMoveFilterSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        queryset = filter_daily_scrap_move_aggregate(
+            serializer.validated_data
+        )
+
+        paginated_records = daily_scrap_move_pagination(request, queryset)
+
         return JsonResponse({
             "result": "success",
-            "data": paginated_records.data,
+            "message": "Daily scrap move aggregate fetched successfully",
+            "content": paginated_records.data
         }, status=status.HTTP_200_OK)
-    except StatusException as e:
-        return JsonResponse({"result": "error", "message": e.message}, status=status.HTTP_400_BAD_REQUEST)
-    except FilterException as e:
-        return JsonResponse({"result": "error", "message": e.message}, status=status.HTTP_400_BAD_REQUEST)
-    except Exception as e:
-        logger.error("Error occurred while fetching daily scrap move aggregate: %s", e)
+
+    except ValidationError as e:
         return JsonResponse({
             "result": "error",
-            "message": "Error occurred while fetching daily scrap move aggregate",
+            "message": e.detail
         }, status=status.HTTP_400_BAD_REQUEST)
-@api_view(['GET'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector", "purchase_head", "supervisor", "factory_manager", "finance", "manager"])])
-def get_filtered_scrap_move_aggregate(request):
-    """
-    Filter Daily scrap move records based on some filter criteria ==> TIN, Material Type, Start Date, End Date, Status
-    """
-    tin = request.query_params.get("tin", "").strip()
-    material_type = request.query_params.get("material_type", "").strip().lower()
-    start_date = request.query_params.get("start_date", "").strip()
-    end_date = request.query_params.get("end_date", "").strip()
-    _status = request.query_params.get("status", "").strip().lower()
-    
-    try:
-        # get the role of the user
-        role = get_user_role(request.user)
-        get_daily_scrap_move = filter_daily_scrap_move_aggregate(role, tin, material_type, start_date, end_date, _status)
-        paginated_query = filter_daily_scrap_move_pagination(request, get_daily_scrap_move, start_date, end_date)
-        status_list = Status.get_status_by_role(role)
-        return JsonResponse({"result": "success", "message": "Daily scrap moves are filtered successfully", "data": paginated_query.data, "status_list": status_list}, status=status.HTTP_200_OK)
-    except ValueError:
-        return JsonResponse({"result": "error", "message": f"TIN {tin} is invalid"}, status=status.HTTP_400_BAD_REQUEST)
-    except StatusException as e:
-        return JsonResponse({"result": "error", "message": e.message}, status=status.HTTP_400_BAD_REQUEST)
-    except FilterException as e:
-        return JsonResponse({"result": "error", "message": e.message}, status=status.HTTP_400_BAD_REQUEST)
+
     except Exception as e:
-        logger.error("Error occurred while filtering daily scrap move %s:", e)
-        return JsonResponse({"result": "error", "message": "Error occurred while filtering daily scrap move"}, status=status.HTTP_400_BAD_REQUEST)
+        logger.error("Error occurred while fetching daily scrap move aggregate: %s",e)
+
+        return JsonResponse({
+            "result": "error",
+            "message": "Error occurred while fetching daily scrap move aggregate"
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
 def get_daily_performance_calculation(request):
     """
-    Calculate daily performance metrics for a given TIN and plate number
+    Calculate daily performance metrics
     """
-    if request.method == "GET":
-        tin = request.GET.get("tin", "").strip()
-        plate_no = request.GET.get("plate_no", "").strip()
-        start_date = request.GET.get("start_date", "").strip()
-        end_date = request.GET.get("end_date", "").strip()
-        try:
-            result = daily_performance_calculator(tin, plate_no, start_date, end_date)
-            return JsonResponse({"result": "success", "message": "Daily performance calculation result", "data": result}, status=status.HTTP_200_OK)
-        except ValueError:
-            return JsonResponse({"result": "error", "message": f"TIN {tin} is not valid"}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            logger.error("Error occurred while calculating daily performance: %s", e)
-            return JsonResponse({"result" : "error", "message" : "Error occurred while calculating daily performance"}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        serializer = DailyPerformanceFilterSerializer(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+
+        queryset = calculate_daily_performance(serializer.validated_data)
+
+        return JsonResponse({
+            "result": "success",
+            "message": "Daily performance calculation result",
+            "content": list(queryset)
+        }, status=status.HTTP_200_OK)
+
+    except ValidationError as e:
+        return JsonResponse({
+            "result": "error",
+            "message": e.detail
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    except Exception as e:
+        logger.error("Error occurred while calculating daily performance: %s", e)
+
+        return JsonResponse({
+            "result": "error",
+            "message": "Error occurred while calculating daily performance"
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
 def approve_record_supervisor(request):
-    if request.method == "PATCH":
-        _id_collections = request.POST.getlist("data")
+    """
+    Supervisor approves daily scrap move records
+    """
+    try:
+        serializer = ApproveDailyScrapMoveSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        if not _id_collections:
-            return JsonResponse({"result": "error", "message": "There is no data on the request"}, status=status.HTTP_400_BAD_REQUEST)
-        valid_ids = [uuid for uuid in _id_collections if is_valid_uuid(uuid)]
-        try:
-            DailyScrapMoveAggregate.objects.filter(_id__in=valid_ids).exclude(status="approved_manager").update(status="approved", updated_at=today, record_time=timezone.now())
-            return JsonResponse({"result": "success", "message": "Daily scrap mov't records approved"}, status=status.HTTP_200_OK)
-        except Exception as e:
-            logger.exception("Error occurred while approving daily scrap mov\'t: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while approving daily scrap mov\'t"}, status=status.HTTP_400_BAD_REQUEST)
+        valid_ids = serializer.validated_data["data"]
+
+        updated_count = approve_daily_scrap_move_records(valid_ids)
+
+        return JsonResponse({
+            "result": "success",
+            "message": f"{updated_count} daily scrap mov't records approved",
+            "content": updated_count
+        }, status=status.HTTP_200_OK)
+
+    except ValidationError as e:
+        return JsonResponse({
+            "result": "error",
+            "message": e.detail
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    except Exception as e:
+        logger.error("Error occurred while approving daily scrap mov\'t: %s", e)
+
+        return JsonResponse({
+            "result": "error",
+            "message": "Error occurred while approving daily scrap mov't"
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "factory_manager"])])
 def approve_record_factory_manager(request):
-    if request.method == "PATCH":
-        _id_collections = request.POST.getlist("data")
+    """
+    Factory manager approves daily scrap move records
+    """
+    try:
+        serializer = ApproveFactoryManagerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        if not _id_collections:
-            return JsonResponse({"result": "error", "message": "There is no data on the request"}, status=status.HTTP_400_BAD_REQUEST)
-        valid_ids = [uuid for uuid in _id_collections if is_valid_uuid(uuid)]
-        try:
-            DailyScrapMoveAggregate.objects.filter(_id__in=valid_ids).update(status="approved_manager", updated_at=today, record_time=timezone.now())
-            return JsonResponse({"result": "success", "message": "Daily scrap mov't records approved"}, status=status.HTTP_200_OK)
-        except Exception as e:
-            logger.exception("Error occurred while approving daily scrap mov\'t: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while approving daily scrap mov\'t"}, status=status.HTTP_400_BAD_REQUEST)
+        valid_ids = serializer.validated_data["data"]
+
+        updated_count = approve_factory_manager_records(valid_ids)
+
+        return JsonResponse({
+            "result": "success",
+            "message": f"{updated_count} daily scrap mov't records approved by factory manager",
+            "content": updated_count,
+        }, status=status.HTTP_200_OK)
+
+    except ValidationError as e:
+        return JsonResponse({
+            "result": "error",
+            "message": e.detail
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    except Exception as e:
+        logger.error("Error occurred while approving daily scrap mov\'t: %s", e)
+
+        return JsonResponse({
+            "result": "error",
+            "message": "Error occurred while approving daily scrap mov't"
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "finance"])])
 def pay_agency_finance(request):
     """
-    Pay agency ===> update the agency remaining amount and paid amount
+    Pay agency:
+    update paid_amount and remaining_amount
     """
-    if request.method == "PATCH":
-        _id_collections = request.POST.getlist("data")
-        
-        if not _id_collections:
-            return JsonResponse({"result": "error", "message": "There is no data on the request"}, status=status.HTTP_400_BAD_REQUEST) 
-        valid_ids = [uuid for uuid in _id_collections if is_valid_uuid(uuid)]
-        try:
-            # Get affected TINs and total paid amount per TIN
-            affected_agencies = (
-                DailyScrapMoveAggregate.objects
-                .filter(_id__in=valid_ids)
-                .values("TIN")  # Group by TIN
-                .annotate(total_paid=Sum(Cast("net_price", FloatField())))  # Sum the net_price for each TIN
-            )
-            DailyScrapMoveAggregate.objects.filter(_id__in=valid_ids).update(status="paid", updated_at=today, record_time=timezone.now())
-            
-            # get TIN and net price each then + on paid amount and - on remaining amount
-            # Update Agency model for each affected TIN
-            for agency_data in affected_agencies:
-                tin = agency_data["TIN"]
-                paid_amount = agency_data["total_paid"]
+    try:
+        serializer = PayAgencyFinanceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-                Agency.objects.filter(TIN=tin).update(
-                    paid_amount=Round(Cast(F("paid_amount"), FloatField()) + float(paid_amount), 2),
-                    remaining_amount=Round(Cast(F("remaining_amount"), FloatField()) - float(paid_amount), 2),
-                    updated_at=today, record_time=timezone.now()
-                )
-            return JsonResponse({"result": "success", "message": "Payment is successful"}, status=status.HTTP_200_OK)
-        except Exception as e:
-            logger.error("Error occurred while approving daily scrap mov\'t: %s", e)
-            return JsonResponse({"result": "error", "message": "Error occurred while approving daily scrap mov\'t"}, status=status.HTTP_400_BAD_REQUEST)
+        valid_ids = serializer.validated_data["data"]
+
+        result = pay_agency_finance_service(valid_ids)
+
+        return JsonResponse({
+            "result": "success",
+            "message": "Payment is successful",
+            "content": result
+        }, status=status.HTTP_200_OK)
+
+    except ValidationError as e:
+        return JsonResponse({
+            "result": "error",
+            "message": e.detail
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    except Exception as e:
+        logger.error(
+            "Error occurred while processing agency payment: %s", e
+        )
+        return JsonResponse({
+            "result": "error",
+            "message": "Error occurred while processing agency payment"
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
