@@ -62,10 +62,8 @@ def agreement_pagination(request, queryset):
 
 def daily_scrap_move_pagination(request, queryset):
     paginator = Pagination()
-    # paginated_queryset = paginator.paginate_queryset(queryset, request)
-    serializer = DailyScrapMoveAggregateSerializer(queryset, many=True)
-    paginated_queryset = paginator.paginate_queryset(serializer.data, request)
-    # return paginator.get_paginated_response(paginated_queryset)
+    paginated_queryset = paginator.paginate_queryset(queryset, request)
+    serializer = DailyScrapMoveAggregateSerializer(paginated_queryset, many=True)
     return paginator.get_paginated_response(serializer.data)
 
 def filter_daily_scrap_move_pagination(request, queryset, start_date, end_date):

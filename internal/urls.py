@@ -19,8 +19,6 @@ urlpatterns = [
     path('delete-agreement/<str:agreement_id>/', views.delete_agreement, name='delete-agreement'),
     
     path('get-daily-scrap-move-aggregate/', views.get_daily_scrap_move_aggregate, name='get-daily-scrap-move-aggregate'),
-    path('filter-daily-scrap-move-aggregate/', views.get_filtered_scrap_move_aggregate, name='get_filtered_scrap_move_aggregate'),
-    
     path('get-daily-performance-calculator/', views.get_daily_performance_calculation, name='get-daily-performance-calculation'),
     path('approve-record-supervisor/', views.approve_record_supervisor, name='approve-record-supervisor'),
     path('approve-record-factory-manager/', views.approve_record_factory_manager, name='approve_record_factory_manager'),
