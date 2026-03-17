@@ -542,7 +542,7 @@ def get_daily_performance_calculation(request):
         return JsonResponse({
             "result": "success",
             "message": "Daily performance calculation result",
-            "content": list(queryset)
+            "content": queryset
         }, status=status.HTTP_200_OK)
 
     except ValidationError as e:
