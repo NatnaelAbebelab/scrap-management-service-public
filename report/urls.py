@@ -7,7 +7,7 @@ urlpatterns = [
     path('general-metrics/', views.general_metrics, name='general_metrics'),
     path('scrap-grade-percentage/', views.scrap_grade_percentage, name='scrap_grade_percentage'),
     path('yearly-purchase-report/', views.yearly_purchase_report, name='yearly_purchase_report'),
-# TODO: After updating internal/transport app => update the reports
+
     path('internal-aggregate-report/', views.internal_process_report, name='internal_process_report'),
     path('internal-general-metrics/', views.internal_general_metrics, name='internal_general_metrics'),
     path('yearly-internal-scrap-move/', views.yearly_internal_scrap_move, name='yearly_internal_scrap_move'),

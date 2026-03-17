@@ -162,7 +162,7 @@ class AgreementCreateSerializer(serializers.Serializer):
 
     contract_details = serializers.DictField()
 
-    agreements = AgreementWeightRangeSerializer(many=True)
+    agreements = AgreementTierSerializer(many=True)
 
     def validate_material_type(self, value):
 

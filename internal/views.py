@@ -59,7 +59,6 @@ def get_factory_scrap_records(request):
     """
 
     try:
-
         queryset, allowed_status = get_factory_scrap_records_service(request.user)
 
         paginated_records = scrap_move_pagination(request, queryset)

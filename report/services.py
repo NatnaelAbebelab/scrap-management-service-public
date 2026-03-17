@@ -1,8 +1,11 @@
+import string, logging
+from calendar import month_abbr
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
-from django.db.models import Sum, FloatField, Count, F
-from django.db.models.functions import Cast, TruncDay, TruncWeek, TruncMonth, TruncYear
+from django.db.models import Sum, FloatField, Count, F, Q, Func, CharField
+from django.db.models.functions import Cast, TruncDay, TruncWeek, TruncMonth, TruncYear, Round, TruncQuarter, \
+    ExtractYear, ExtractQuarter
 from django.utils import timezone
 
 from customer.models import PurchaseCustomer
@@ -11,8 +14,10 @@ from helperFunctions.date_manipulation import get_last_week
 from helperFunctions.formatter import format_large_number
 from helperFunctions.material_type import MaterialType
 from helperFunctions.status import Status
-from helperFunctions.validations import ToDateTime, ToDate
+from helperFunctions.validations import ToDateTime, ToDate, ToFormalDate
+from internal.models import DailyScrapMoveAggregate, Agency
 
+logger = logging.getLogger(__name__)
 
 def generate_grn_plain_report(filters):
 
@@ -276,3 +281,329 @@ def generate_yearly_purchase_report():
         }
 
     return formatted_result
+
+def internal_aggregate_report(
+    queryset,
+    period="daily",
+    by_tin=False,
+    by_material_type=False,
+    by_start_date=False,
+    by_end_date=False,
+    by_status=False,
+    start_date=None,
+    end_date=None
+):
+    """
+    Generic internal aggregation report (daily/weekly/monthly/yearly/quarterly)
+    """
+    PERIOD_CONFIG = {
+        "daily": {
+            "trunc": TruncDay,
+            "format": "Mon DD, YYYY"
+        },
+        "weekly": {
+            "trunc": TruncWeek,
+            "format": "Mon DD, YYYY"
+        },
+        "monthly": {
+            "trunc": TruncMonth,
+            "format": "Mon YYYY"
+        },
+        "quarterly": {
+            "trunc": TruncQuarter,
+            "format": None
+        },
+        "yearly": {
+            "trunc": TruncYear,
+            "format": "YYYY"
+        }
+    }
+
+    config = PERIOD_CONFIG.get(period, PERIOD_CONFIG["daily"])
+
+    # Annotate period
+    queryset = queryset.annotate(
+        period=config["trunc"]("casted_weight_date")
+    )
+
+    # Extract base values (only once)
+    base_row = queryset.values("TIN", "material_type", "status").first()
+
+    tin = base_row["TIN"] if base_row else None
+    material_type = base_row["material_type"] if base_row else None
+    _status = base_row["status"] if base_row else None
+
+    exists = queryset.exists()
+
+    # Build extra info
+    extra_info = {}
+
+    if by_tin and exists:
+        agency = Agency.objects.filter(TIN=tin).first()
+        if agency:
+            extra_info["agency_info"] = {
+                "first_name": string.capwords(agency.first_name),
+                "last_name": string.capwords(agency.last_name),
+                "TIN": agency.TIN,
+                "business_name": string.capwords(agency.business_name)
+            }
+
+    if by_material_type and exists:
+        extra_info["material_type"] = {
+            "name": MaterialType.get_material_type(material_type)
+        }
+
+    if by_start_date:
+        extra_info["start_date_info"] = {"start_date": start_date}
+
+    if by_end_date:
+        extra_info["end_date_info"] = {"end_date": end_date}
+
+    if by_status and exists:
+        extra_info["status_info"] = {
+            "status": Status.get_status(_status).name
+        }
+
+    # Aggregation
+    report_data = queryset.values("period").annotate(
+        total_quantity=Count("_id"),
+        total_net_weight=Round(Sum(Cast("daily_net_weight", FloatField())), 2),
+        total_net_price=Round(Sum(Cast("net_price", FloatField())), 2),
+        record_count=Count("_id"),
+    ).order_by("period")
+
+    # Handle quarterly separately
+    if period == "quarterly":
+        report_data = report_data.annotate(
+            year=ExtractYear("period"),
+            quarter=ExtractQuarter("period")
+        )
+
+        data = list(report_data.values(
+            "total_net_weight",
+            "total_net_price",
+            "period",
+            "record_count",
+            "year",
+            "quarter"
+        ))
+
+        # Format in Python
+        for row in data:
+            row["formatted_period"] = f"Q{row['quarter']} {row['year']}"
+
+    else:
+        # Default formatting using TO_CHAR
+        report_data = report_data.annotate(
+            formatted_period=Func(
+                F("period"),
+                function="TO_CHAR",
+                template=f"%(function)s(%(expressions)s, '{config['format']}')",
+                output_field=CharField()
+            )
+        )
+
+        data = list(report_data.values(
+            "total_net_weight",
+            "total_net_price",
+            "period",
+            "formatted_period",
+            "record_count"
+        ))
+
+    return {
+        "data": data,
+        "extra_info": extra_info
+    }
+
+def internal_process_report_service(filters):
+    """
+    Internal process report generator
+    """
+    try:
+        tin = filters.get("tin")
+        material_type = filters.get("material_type")
+        plate_no = filters.get("plate_no")
+        start_date = filters.get("start_date")
+        end_date = filters.get("end_date")
+        status = filters.get("status")
+        period = filters.get("period")
+
+        queryset = (
+            DailyScrapMoveAggregate.objects
+            .filter(is_deleted=False)
+            .annotate(casted_weight_date=ToDateTime(F("weight_date")))
+            .order_by("-record_time")
+        )
+
+        query_filter = Q()
+
+        # TIN filter (avoid unnecessary DB hit)
+        if tin:
+            query_filter &= Q(TIN=tin)
+
+        # Material type
+        if material_type:
+            query_filter &= Q(material_type__iexact=material_type)
+
+        # Plate number (ensure field exists in model)
+        if plate_no:
+            query_filter &= Q(plate_no__iexact=plate_no)
+
+        # Date filters
+        if start_date:
+            query_filter &= Q(casted_weight_date__gte=start_date)
+
+        if end_date:
+            query_filter &= Q(casted_weight_date__lte=end_date)
+
+        # Status filter
+        if status:
+            query_filter &= Q(status__iexact=status)
+
+        queryset = queryset.filter(query_filter)
+
+        # Aggregation mapping (NOW includes quarterly)
+        aggregation_map = {
+            "daily": "daily",
+            "weekly": "weekly",
+            "monthly": "monthly",
+            "quarterly": "quarterly",
+            "yearly": "yearly",
+        }
+
+        period_key = aggregation_map.get(period, "daily")
+
+        # Generate a report
+        result = internal_aggregate_report(
+            queryset=queryset,
+            period=period_key,
+            by_tin=bool(tin),
+            by_material_type=bool(material_type),
+            by_start_date=bool(start_date),
+            by_end_date=bool(end_date),
+            by_status=bool(status),
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        return result
+
+    except Exception as e:
+        logger.error("Error occurred while aggregating scrap move: %s", e)
+        raise Exception("Error occurred while aggregating records")
+
+def internal_general_metrics_service(start_date=None, end_date=None):
+    """
+    Generate internal general metrics
+    """
+    try:
+        queryset = DailyScrapMoveAggregate.objects.annotate(
+            casted_weight_date=ToFormalDate("weight_date")
+        )
+
+        # Apply date filters
+        if start_date:
+            queryset = queryset.filter(casted_weight_date__gte=start_date)
+
+        if end_date:
+            queryset = queryset.filter(casted_weight_date__lte=end_date)
+
+        # Weekly scrap moves (filtered)
+        weekly_scrap_move = queryset.count()
+
+        # Global metrics (use base queryset only once)
+        base_qs = DailyScrapMoveAggregate.objects.all()
+
+        total_agencies = Agency.objects.count()
+        total_daily_scrap_moves = base_qs.count()
+
+        total_approved_daily_scrap_moves = base_qs.filter(
+            status=Status.APPROVED.status_value
+        ).count()
+
+        paid_data = base_qs.filter(
+            status=Status.PAID.status_value
+        ).aggregate(
+            total_net_price=Sum(Cast("net_price", FloatField())),
+            record_count=Count("_id")
+        )
+
+        total_paid_daily_scrap_moves_count = paid_data.get("record_count") or 0
+
+        total_paid_amount = paid_data.get("total_net_price") or 0
+        total_paid_amount = Decimal(str(total_paid_amount)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
+        return {
+            "weekly_scrap_move": weekly_scrap_move,
+            "total_agencies": total_agencies,
+            "total_daily_scrap_moves": total_daily_scrap_moves,
+            "total_approved_daily_scrap_moves": total_approved_daily_scrap_moves,
+            "total_paid_daily_scrap_moves_count": total_paid_daily_scrap_moves_count,
+            "total_paid_amount": total_paid_amount,
+        }
+
+    except Exception as e:
+        logger.error("Error occurred while generating general metrics: %s", e)
+        raise Exception("Error occurred while generating general metrics")
+
+def yearly_internal_scrap_move_service():
+    """
+    Yearly internal scrap move aggregated by month
+    """
+    try:
+        now = timezone.now()
+        start_date = (now - timedelta(days=365)).replace(day=1)
+        end_date = now
+
+        queryset = (
+            DailyScrapMoveAggregate.objects
+            .annotate(casted_weight_date=ToFormalDate("weight_date"))
+            .filter(
+                casted_weight_date__range=(start_date, end_date),
+                material_type__iexact=MaterialType.SCRAP.value
+            )
+            .order_by("record_time")
+        )
+
+        # Use unified aggregation (monthly)
+        result = internal_aggregate_report(
+            queryset=queryset,
+            period="monthly",
+            by_material_type=True,
+            start_date=start_date,
+            end_date=end_date
+        )
+
+        formatted_result = {}
+
+        for row in result.get("data", []):
+            period = row["period"]
+            month = period.month
+            year = period.year
+            month_name = month_abbr[month].lower()
+
+            total_net_price = Decimal(str(row["total_net_price"] or 0)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+
+            total_net_weight = Decimal(str(row["total_net_weight"] or 0)).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+
+            formatted_result[month_name] = {
+                "month": month_name,
+                "year": year,
+                "total_net_price": float(total_net_price),
+                "total_net_weight": float(total_net_weight),
+                "format_total_net_price": format_large_number(total_net_price),
+                "format_net_weight": format_large_number(total_net_weight),
+            }
+
+        return formatted_result
+
+    except Exception as e:
+        logger.error("Error occurred while generating yearly report: %s", e)
+        raise Exception("Error occurred while generating yearly report")

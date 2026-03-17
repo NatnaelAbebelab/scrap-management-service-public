@@ -1,7 +1,11 @@
+from datetime import datetime
+
 from rest_framework import serializers
 
 from grn.models import GRN
 from grn.serializers import GRNCustomerSerializer
+from helperFunctions.material_type import is_valid_material
+from helperFunctions.validations import clean_tin
 
 
 class GRNPlainReportFilterSerializer(serializers.Serializer):
@@ -93,3 +97,37 @@ class YearlyPurchaseItemSerializer(serializers.Serializer):
 
 class YearlyPurchaseReportResponseSerializer(serializers.Serializer):
     data = YearlyPurchaseItemSerializer(many=True)
+
+class InternalProcessReportSerializer(serializers.Serializer):
+    tin = serializers.CharField(required=False, allow_blank=True)
+    material_type = serializers.CharField(required=False, allow_blank=True)
+    plate_no = serializers.CharField(required=False, allow_blank=True)
+    start_date = serializers.CharField(required=False, allow_blank=True)
+    end_date = serializers.CharField(required=False, allow_blank=True)
+    status = serializers.CharField(required=False, allow_blank=True)
+    period = serializers.ChoiceField(
+        choices=["daily", "weekly", "monthly", "yearly"],
+        default="daily"
+    )
+
+    def validate_tin(self, value):
+        if value and not clean_tin(value):
+            raise serializers.ValidationError("Invalid TIN")
+        return clean_tin(value)
+
+    def validate_material_type(self, value):
+        if value and not is_valid_material(value):
+            raise serializers.ValidationError("Invalid material type")
+        return value.lower()
+
+    def validate(self, data):
+        def parse_date(date):
+            if not date:
+                return None
+            return datetime.strptime(date, "%Y-%m-%d").date()
+
+        data["start_date"] = parse_date(data.get("start_date"))
+        data["end_date"] = parse_date(data.get("end_date"))
+        data["status"] = (data.get("status") or "").lower()
+
+        return data
