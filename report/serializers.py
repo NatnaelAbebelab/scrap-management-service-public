@@ -99,26 +99,38 @@ class YearlyPurchaseReportResponseSerializer(serializers.Serializer):
     data = YearlyPurchaseItemSerializer(many=True)
 
 class InternalProcessReportSerializer(serializers.Serializer):
-    tin = serializers.CharField(required=False, allow_blank=True)
-    material_type = serializers.CharField(required=False, allow_blank=True)
-    plate_no = serializers.CharField(required=False, allow_blank=True)
-    start_date = serializers.CharField(required=False, allow_blank=True)
-    end_date = serializers.CharField(required=False, allow_blank=True)
-    status = serializers.CharField(required=False, allow_blank=True)
+    tin = serializers.CharField(required=False, allow_null=True)
+    material_type = serializers.CharField(required=False, allow_null=True)
+    plate_no = serializers.CharField(required=False, allow_null=True)
+    start_date = serializers.CharField(required=False, allow_null=True)
+    end_date = serializers.CharField(required=False, allow_null=True)
+    status = serializers.CharField(required=False, allow_null=True)
     period = serializers.ChoiceField(
         choices=["daily", "weekly", "monthly", "yearly"],
-        default="daily"
+        default="daily",
+        allow_null=True
     )
 
     def validate_tin(self, value):
-        if value and not clean_tin(value):
+        if value in [None, ""]:
+            return None
+
+        cleaned = clean_tin(value)
+        if not cleaned:
             raise serializers.ValidationError("Invalid TIN")
-        return clean_tin(value)
+
+        return cleaned
 
     def validate_material_type(self, value):
-        if value and not is_valid_material(value):
+        if value in [None, ""]:
+            return None
+
+        value = value.strip().lower()
+
+        if not is_valid_material(value):
             raise serializers.ValidationError("Invalid material type")
-        return value.lower()
+
+        return value
 
     def validate(self, data):
         def parse_date(date):

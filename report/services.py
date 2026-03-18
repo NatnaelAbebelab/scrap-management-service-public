@@ -432,7 +432,7 @@ def internal_process_report_service(filters):
         queryset = (
             DailyScrapMoveAggregate.objects
             .filter(is_deleted=False)
-            .annotate(casted_weight_date=ToDateTime(F("weight_date")))
+            .annotate(casted_weight_date=ToFormalDate(F("weight_date")))
             .order_by("-record_time")
         )
 

@@ -218,11 +218,6 @@ def internal_general_metrics(request):
 
         # Add formatted values (presentation layer)
         response_data = {
-            "result": "success",
-            "message": "General metrics successfully fetched",
-
-            **result,
-
             "weekly_scrap_move_text": format_large_number(result["weekly_scrap_move"]),
             "total_agencies_text": format_large_number(result["total_agencies"]),
             "total_daily_scrap_moves_text": format_large_number(result["total_daily_scrap_moves"]),
@@ -231,7 +226,11 @@ def internal_general_metrics(request):
             "total_paid_amount_text": format_large_number(result["total_paid_amount"]),
         }
 
-        return JsonResponse(response_data, status=status.HTTP_200_OK)
+        return JsonResponse({
+            "result": "success",
+            "message": "General metrics successfully fetched",
+            "content": response_data
+        }, status=status.HTTP_200_OK)
 
     except Exception as e:
         logger.error("Error occurred while fetching general metrics: %s", e)
