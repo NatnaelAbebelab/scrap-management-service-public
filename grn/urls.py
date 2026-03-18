@@ -22,6 +22,6 @@ urlpatterns = [
     path('get-grn-serial-numbers/', views.get_grn_serial_numbers, name='get-grn-serial-numbers'),
     path('get-scrap-receipt/<str:record_no>/', views.get_scrap_receipt, name='get-scrap-receipt'),
 
-    path('get-material-types', views.get_material_types, name='get-material-types'),
-    path('get-status-list', views.get_status_list, name='get-status-list')
+    path('get-material-types/', views.get_material_types, name='get-material-types'),
+    path('get-status-list/', views.get_status_list, name='get-status-list')
 ]
