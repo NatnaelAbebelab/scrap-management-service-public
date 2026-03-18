@@ -1,4 +1,3 @@
-import logging
 import sys
 
 from django.http import JsonResponse, Http404
@@ -149,7 +148,7 @@ def add_agency(request):
     Register a new agency
     """
     try:
-        serializer = AgencyCreateSerializer(data=request.POST)
+        serializer = AgencyCreateSerializer(data=request.data)
 
         if not serializer.is_valid():
             return JsonResponse(
@@ -436,13 +435,19 @@ def update_agreement_range(request):
             user=request.user
         )
 
-        serialized_result = AgreementRangeSerializer(updated_agreement_range).data
+        serialized_result = AgreementRangeSerializer(updated_agreement_range, many=True).data
 
         return JsonResponse({
             "result": "success",
             "message": "Agreement ranges updated successfully",
             "content": serialized_result
         }, status=status.HTTP_200_OK)
+
+    except Http404:
+        return JsonResponse({
+            "result": "error",
+            "message": "Agreement range not found"
+        }, status=status.HTTP_404_NOT_FOUND)
 
     except ValueError as e:
         return JsonResponse({
@@ -513,7 +518,7 @@ def get_daily_scrap_move_aggregate(request):
             "content": paginated_records.data
         }, status=status.HTTP_200_OK)
 
-    except ValidationError as e:
+    except serializers.ValidationError as e:
         return JsonResponse({
             "result": "error",
             "message": e.detail
@@ -545,7 +550,7 @@ def get_daily_performance_calculation(request):
             "content": queryset
         }, status=status.HTTP_200_OK)
 
-    except ValidationError as e:
+    except serializers.ValidationError as e:
         return JsonResponse({
             "result": "error",
             "message": e.detail
@@ -579,7 +584,7 @@ def approve_record_supervisor(request):
             "content": updated_count
         }, status=status.HTTP_200_OK)
 
-    except ValidationError as e:
+    except serializers.ValidationError as e:
         return JsonResponse({
             "result": "error",
             "message": e.detail
@@ -613,7 +618,7 @@ def approve_record_factory_manager(request):
             "content": updated_count,
         }, status=status.HTTP_200_OK)
 
-    except ValidationError as e:
+    except serializers.ValidationError as e:
         return JsonResponse({
             "result": "error",
             "message": e.detail
@@ -648,7 +653,7 @@ def pay_agency_finance(request):
             "content": result
         }, status=status.HTTP_200_OK)
 
-    except ValidationError as e:
+    except serializers.ValidationError as e:
         return JsonResponse({
             "result": "error",
             "message": e.detail
