@@ -1,6 +1,8 @@
 from rest_framework import serializers
 from .models import Agency, Agreement, AgreementRange, FactoryScrapMove, DailyScrapMoveAggregate
 from decimal import Decimal, ROUND_HALF_UP
+from helperFunctions.validations import clean_tin, is_valid_number, is_digit, is_valid_uuid
+from helperFunctions.material_type import MaterialType, is_valid_material
 
 class FactoryScrapUploadSerializer(serializers.Serializer):
     record_no = serializers.CharField()
@@ -76,10 +78,10 @@ class AgencyCreateSerializer(serializers.Serializer):
     business_name = serializers.CharField(max_length=255)
 
     def validate(self, data):
-        first_name = data.get("fname", "").strip()
-        last_name = data.get("last_name", "").strip()
-        tin = data.get("tin", "").strip()
-        business_name = data.get("business_name", "").strip()
+        first_name = data.get("first_name").strip()
+        last_name = data.get("last_name").strip()
+        tin = data.get("tin").strip()
+        business_name = data.get("business_name").strip()
 
         if not first_name or not last_name:
             raise serializers.ValidationError(
@@ -98,7 +100,7 @@ class AgencyCreateSerializer(serializers.Serializer):
 
         agency_tin = clean_tin(tin)
 
-        if Agency.all_objects.filter(TIN=agency_tin).exists():
+        if Agency.objects.filter(TIN=agency_tin).exists():
             raise serializers.ValidationError(f"TIN {tin} is already registered")
 
         data["TIN"] = agency_tin
@@ -111,7 +113,7 @@ class AgencyUpdateSerializer(serializers.Serializer):
     last_name = serializers.CharField(required=False, allow_blank=True)
     tin = serializers.CharField(required=False, allow_blank=True)
     business_name = serializers.CharField(required=False, allow_blank=True)
-    agreement = serializers.UUIDField(required=False)
+    agreement = serializers.UUIDField(required=False, allow_null=True)
 
     def validate(self, data):
 
@@ -193,14 +195,16 @@ class AgreementUpdateSerializer(serializers.Serializer):
     agreement = serializers.UUIDField()
     agency = serializers.UUIDField()
     tin = serializers.CharField()
-    material_type = serializers.CharField(required=False)
-    status = serializers.CharField(required=False)
-    name = serializers.CharField(required=False)
-    agreement_proof = serializers.CharField(required=False)
+    material_type = serializers.CharField(required=False, allow_null=True)
+    status = serializers.CharField(required=False, allow_null=True)
+    name = serializers.CharField(required=False, allow_null=True)
+    agreement_proof = serializers.CharField(required=False, allow_null=True)
 
     contract_details = serializers.DictField(required=False)
 
     def validate_material_type(self, value):
+        if not value:
+            return None
 
         value = value.lower()
 
@@ -210,6 +214,8 @@ class AgreementUpdateSerializer(serializers.Serializer):
         return value
 
     def validate_status(self, value):
+        if not value:
+            return None
 
         value = value.lower()
 
@@ -249,21 +255,30 @@ class DailyScrapMoveAggregateSerializer(serializers.ModelSerializer):
         return data
 
 class DailyScrapMoveFilterSerializer(serializers.Serializer):
-    tin = serializers.CharField(required=False, allow_blank=True)
-    material_type = serializers.CharField(required=False, allow_blank=True)
-    start_date = serializers.DateField(required=False)
-    end_date = serializers.DateField(required=False)
-    status = serializers.CharField(required=False, allow_blank=True)
+    tin = serializers.CharField(required=False, allow_null=True)
+    material_type = serializers.CharField(required=False, allow_null=True)
+    start_date = serializers.DateField(required=False, allow_null=True)
+    end_date = serializers.DateField(required=False, allow_null=True)
+    status = serializers.CharField(required=False, allow_null=True)
 
     def validate_tin(self, value):
-        if value and not clean_tin(value):
+        if not value:
+            return None
+
+        cleaned = clean_tin(value)
+        if not cleaned:
             raise serializers.ValidationError("TIN has no proper value")
-        return clean_tin(value)
+
+        return cleaned
 
     def validate_material_type(self, value):
-        if value and not is_valid_material(value):
+        if not value:
+            return None
+
+        if not is_valid_material(value):
             raise serializers.ValidationError("Invalid material type")
-        return value
+
+        return value.lower()
 
 class DailyPerformanceFilterSerializer(serializers.Serializer):
     tin = serializers.CharField(required=False, allow_blank=True)

@@ -1,5 +1,18 @@
-from helperFunctions.validations import is_valid_uuid, clean_tin
+import pandas as pd
+import logging
 
+from django.shortcuts import get_object_or_404
+from django.db import IntegrityError, transaction
+from django.db.models import Q, F, Sum, FloatField, Count
+from django.db.models.functions import Round, Cast
+from django.contrib.postgres.aggregates import ArrayAgg
+from helperFunctions.validations import is_valid_uuid, clean_tin, ToFormalDate, ToDateTime
+from helperFunctions.roles import get_user_role
+from helperFunctions.status import Status
+from .serializers import FactoryScrapUploadSerializer
+from .models import Agency, Agreement, AgreementRange, FactoryScrapMove, DailyScrapMoveAggregate
+
+logger = logging.getLogger(__name__)
 
 def process_scrap_excel(file, user):
 
@@ -75,8 +88,8 @@ def process_scrap_excel(file, user):
                 agency=validated["firm"],
                 material_type=validated["material"],
                 driver_name=validated.get("driver_name"),
-                created_by=user.username,
-                updated_by=user.username,
+                created_by=user,
+                updated_by=user,
             )
 
             created_count += 1
@@ -171,8 +184,8 @@ def filter_factory_scrap_records_service(filters):
 def create_agency(validated_data, user, today):
 
     agency = Agency.objects.create(
-        fname=validated_data["first_name"].strip(),
-        lname=validated_data["last_name"].strip(),
+        first_name=validated_data["first_name"].strip(),
+        last_name=validated_data["last_name"].strip(),
         TIN=validated_data["TIN"],
         business_name=validated_data["business_name"].strip(),
         created_by=user,
@@ -384,17 +397,11 @@ def update_agreement_ranges(validated_data, user):
     agreement_id = validated_data["agreement"]
     ranges = validated_data["ranges"]
 
+    updated_ranges = []
+
     with transaction.atomic():
         for range_id, range_data in ranges.items():
-            try:
-                agreement_range = AgreementRange.objects.get(
-                    _id=range_id,
-                    agreement_id=agreement_id
-                )
-            except AgreementRange.DoesNotExist:
-                raise ValueError(
-                    f"Range {range_id} not found under this agreement"
-                )
+            get_object_or_404(AgreementRange.objects, _id=range_id, agreement=agreement_id)
 
             update_fields = {
                 "updated_by": user
@@ -409,13 +416,14 @@ def update_agreement_ranges(validated_data, user):
             if "rate" in range_data:
                 update_fields["rate"] = range_data["rate"]
 
-            # Remove if no real update fields
-            if len(update_fields) > 3:
+            if len(update_fields) > 1:
                 AgreementRange.objects.filter(
                     _id=range_id
                 ).update(**update_fields)
 
-    return agreement_range
+            updated_ranges.append(range_id)
+
+    return AgreementRange.objects.filter(_id__in=updated_ranges)
 
 def delete_agreement_service(agreement_id):
     """
@@ -434,7 +442,7 @@ def delete_agreement_service(agreement_id):
 
         # Delete related ranges first
         AgreementRange.objects.filter(
-            agreement_id=agreement_id
+            agreement=agreement_id
         ).delete()
 
         # Delete agreement
@@ -484,7 +492,7 @@ def filter_daily_scrap_move_aggregate(filters):
 
     except Exception as e:
         logger.error("Error occurred while filtering daily move aggregate: %s", e)
-        raise FilterException("Error occurred while filtering daily move aggregate")
+        raise Exception("Error occurred while filtering daily move aggregate")
 
 def calculate_daily_performance(filters):
     """
@@ -567,8 +575,8 @@ def calculate_daily_performance(filters):
             "agency_info": agency_info
         }
 
-    except Exception:
-        logger.error("Error occurred while calculating daily performance")
+    except Exception as e:
+        logger.error("Error occurred while calculating daily performance: %s", e)
         raise Exception("Error occurred while calculating daily performance")
 
 def approve_daily_scrap_move_records(valid_ids):
@@ -600,9 +608,7 @@ def approve_factory_manager_records(valid_ids):
             DailyScrapMoveAggregate.objects
             .filter(_id__in=valid_ids)
             .update(
-                status="approved_manager",
-                updated_at=today,
-                record_time=timezone.now()
+                status="approved_manager"
             )
         )
 
@@ -619,7 +625,7 @@ def pay_agency_finance_service(valid_ids):
     """
     Pay agency:
     - Update DailyScrapMoveAggregate status
-    - Update Agency paid & remaining amounts
+    - Update Agency paid and remaining amounts
     """
     try:
         with transaction.atomic():
@@ -638,9 +644,7 @@ def pay_agency_finance_service(valid_ids):
                 DailyScrapMoveAggregate.objects
                 .filter(_id__in=valid_ids)
                 .update(
-                    status="paid",
-                    updated_at=today,
-                    record_time=timezone.now()
+                    status="paid"
                 )
             )
 
@@ -656,8 +660,6 @@ def pay_agency_finance_service(valid_ids):
                     remaining_amount=Round(
                         Cast(F("remaining_amount"), FloatField()) - paid_amount, 2
                     ),
-                    updated_at=today,
-                    record_time=timezone.now()
                 )
 
         return {
@@ -667,4 +669,4 @@ def pay_agency_finance_service(valid_ids):
 
     except Exception as e:
         logger.exception("Error occurred while processing agency payment: %s", e)
-        raise ServiceException("Error occurred while processing agency payment")
+        raise Exception("Error occurred while processing agency payment")
