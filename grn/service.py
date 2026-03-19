@@ -110,7 +110,7 @@ def change_grn_status_service(record_nos, role, user, data):
 
         # Update status
         record.status = next_status
-        record.updated_by = user.username
+        record.updated_by = user
         record.save()
         updated_records.append(record.record_no)
 
