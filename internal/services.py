@@ -6,7 +6,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q, F, Sum, FloatField, Count
 from django.db.models.functions import Round, Cast
 from django.contrib.postgres.aggregates import ArrayAgg
-from helperFunctions.validations import is_valid_uuid, clean_tin, ToFormalDate, ToDateTime
+from helperFunctions.validations import is_valid_uuid, clean_tin, ToFormalDateTime, ToDateTime
 from helperFunctions.roles import get_user_role
 from helperFunctions.status import Status
 from .serializers import FactoryScrapUploadSerializer
@@ -479,7 +479,7 @@ def filter_daily_scrap_move_aggregate(filters):
 
         # Date filtering
         queryset = queryset.annotate(
-            casted_weight_date=ToFormalDate("weight_date")
+            casted_weight_date=ToFormalDateTime("weight_date")
         )
 
         if start_date:

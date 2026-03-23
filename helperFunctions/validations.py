@@ -12,10 +12,15 @@ class ToDate(Func):
     template = "%(function)s(%(expressions)s, 'DD.MM.YYYY')"
     output_field = DateField()
 
-class ToFormalDate(Func):
+class ToFormalDateTime(Func):
     function = 'TO_DATE'
     template = "%(function)s(%(expressions)s, 'YYYY-MM-DD')"
     output_field = DateTimeField()
+
+class ToFormalDate(Func):
+    function = 'TO_DATE'
+    template = "%(function)s(%(expressions)s, 'YYYY-MM-DD')"
+    output_field = DateField()
 
 class CastToDate(Func):
     """

@@ -309,8 +309,8 @@ def upload_csv_file(request):
                     new_cust = PurchaseCustomer(
                         TIN=customer_tin,
                         remaining_amount=round(net_price, 2),
-                        created_by=request.user.username,
-                        updated_by=request.user.username
+                        created_by=request.user,
+                        updated_by=request.user
                     )
                     customer_cache[customer_tin] = new_cust
 
