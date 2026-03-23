@@ -174,6 +174,16 @@ class MaterialRequisitionEditSerializer(serializers.Serializer):
 
         return value
 
+    def validate_requisition_date(self, value):
+        today = timezone.now().date()
+
+        if value > today:
+            raise serializers.ValidationError(
+                "Requisition date cannot be in the future"
+            )
+
+        return value
+
 class ApprovedMaterialRequisitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = MaterialRequisition
@@ -208,6 +218,7 @@ class RawMaterialIssueCreateSerializer(serializers.Serializer):
     def validate(self, data):
         requisition_id = data.get("material_requisition")
         issue_date = data.get("issue_date")
+        today = timezone.now().date()
 
         if requisition_id and issue_date:
             requisition = MaterialRequisition.objects.filter(_id=requisition_id).first()
@@ -221,6 +232,11 @@ class RawMaterialIssueCreateSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"issue_date": "Issue date must be greater than or equal to requisition date"}
                 )
+
+        if data > today:
+            raise serializers.ValidationError(
+                "Issue date cannot be in the future"
+            )
 
         return data
 
@@ -308,6 +324,7 @@ class RawMaterialIssueEditSerializer(serializers.Serializer):
         """
         Ensure issue_date >= requisition_date
         """
+        today = timezone.now().date()
         requisition_id = self.initial_data.get("material_requisition")
         if requisition_id:
             requisition = MaterialRequisition.objects.filter(_id=requisition_id).first()
@@ -320,6 +337,11 @@ class RawMaterialIssueEditSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"issue_date": "Issue date must be greater than or equal to requisition date"}
                 )
+
+        if value > today:
+            raise serializers.ValidationError(
+                "Issue date cannot be in the future"
+            )
 
         return value
 
