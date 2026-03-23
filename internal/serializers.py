@@ -260,6 +260,7 @@ class DailyScrapMoveFilterSerializer(serializers.Serializer):
     start_date = serializers.DateField(required=False, allow_null=True)
     end_date = serializers.DateField(required=False, allow_null=True)
     status = serializers.CharField(required=False, allow_null=True)
+    export = serializers.BooleanField(required=False, default=False)
 
     def validate_tin(self, value):
         if not value:

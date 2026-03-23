@@ -510,12 +510,17 @@ def get_daily_scrap_move_aggregate(request):
             serializer.validated_data
         )
 
-        paginated_records = daily_scrap_move_pagination(request, queryset)
+        export = serializer.validated_data.get("export")
+
+        if export:
+            serializer = DailyScrapMoveAggregateSerializer(queryset, many=True)
+        else:
+            serializer = daily_scrap_move_pagination(request, queryset)
 
         return JsonResponse({
             "result": "success",
             "message": "Daily scrap move aggregate fetched successfully",
-            "content": paginated_records.data
+            "content": serializer.data
         }, status=status.HTTP_200_OK)
 
     except serializers.ValidationError as e:
