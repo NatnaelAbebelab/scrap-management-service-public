@@ -2,6 +2,7 @@ from django.http import JsonResponse, Http404
 from django.contrib.auth import login
 from django.shortcuts import get_object_or_404
 from django.template.loader import get_template
+from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
@@ -371,3 +372,7 @@ def get_me(request, user_id):
         )
     except Exception as e:
         logger.error("Error occurred while fetching user: %s", e)
+
+@ensure_csrf_cookie
+def csrf_token_view(request):
+    return JsonResponse({"message": "CSRF cookie set"})
