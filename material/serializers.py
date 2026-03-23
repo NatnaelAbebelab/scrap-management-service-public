@@ -233,7 +233,7 @@ class RawMaterialIssueCreateSerializer(serializers.Serializer):
                     {"issue_date": "Issue date must be greater than or equal to requisition date"}
                 )
 
-        if data > today:
+        if issue_date > today:
             raise serializers.ValidationError(
                 "Issue date cannot be in the future"
             )

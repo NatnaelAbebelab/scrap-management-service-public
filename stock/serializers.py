@@ -23,8 +23,9 @@ class StockBalanceSerializer(serializers.ModelSerializer):
         required=True
     )
 
-    melting_plant = serializers.PrimaryKeyRelatedField(
+    melting_plant = serializers.SlugRelatedField(
         queryset=MeltingPlants.objects.all(),
+        slug_field='plant_name',  # replace 'name' with the field you want to show
         required=False,
         allow_null=True
     )
