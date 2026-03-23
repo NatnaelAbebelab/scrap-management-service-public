@@ -120,7 +120,7 @@ def get_stock_balance_service(filters: dict):
 
     queryset = (
         StockBalance.objects
-        .annotate(weight_date_dt=ToDateTime(F("weight_date")))
+        .annotate(weight_date_dt=ToFormalDate(F("weight_date")))
         .filter(weight_date_dt__range=(start_date, end_date))
         .order_by("weight_date_dt") # ascending = oldest first
     )
@@ -153,7 +153,7 @@ def get_stock_balance_aggregated_service(filters: dict):
 
     # Base queryset
     queryset = StockBalance.objects.annotate(
-        weight_date_dt=ToDateTime(F("weight_date"))
+        weight_date_dt=ToFormalDate(F("weight_date"))
     ).filter(
         weight_date_dt__range=(start_date, end_date)
     )
