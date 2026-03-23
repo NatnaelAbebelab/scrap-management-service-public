@@ -6,7 +6,8 @@ from django.db.models import F, Sum
 from django.db.models.functions import TruncDay, TruncWeek, TruncMonth, TruncQuarter, TruncYear
 from django.utils import timezone
 
-from helperFunctions.validations import ToDateTime
+from helperFunctions.date_manipulation import normalize_date_string
+from helperFunctions.validations import ToDateTime, ToFormalDate
 from stock.models import BeginningBalance, StockBalance
 from stock.serializers import StockBalanceSerializer
 from stock.type_enum import StockBalanceOn
@@ -73,9 +74,12 @@ def add_purchase_stock_record(date_str, purchase_qty, purchase_value, grn_no, re
         active_balance.current_value += purchase_value
         active_balance.save()
 
+        # change weight date string format
+        weight_date_str = normalize_date_string(date_str)
+
         # Create a new stock record
         stock = StockBalance(
-            weight_date=date_str,
+            weight_date=weight_date_str,
             transaction_type=StockBalanceOn.PURCHASE.value,
             grn_no=grn_no,
             record_no=record_no,
@@ -202,7 +206,7 @@ def generate_stock_card_service(filters: dict):
 
     # Base queryset: convert weight_date string to date
     queryset = StockBalance.objects.annotate(
-        weight_date_dt=ToDateTime(F("weight_date"))
+        weight_date_dt=ToFormalDate(F("weight_date"))
     ).filter(
         weight_date_dt__range=(start_date, end_date)
     )

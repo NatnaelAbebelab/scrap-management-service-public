@@ -14,7 +14,7 @@ from helperFunctions.date_manipulation import get_last_week
 from helperFunctions.formatter import format_large_number
 from helperFunctions.material_type import MaterialType
 from helperFunctions.status import Status
-from helperFunctions.validations import ToDateTime, ToDate, ToFormalDate
+from helperFunctions.validations import ToDateTime, ToDate, ToFormalDateTime
 from internal.models import DailyScrapMoveAggregate, Agency
 
 logger = logging.getLogger(__name__)
@@ -432,7 +432,7 @@ def internal_process_report_service(filters):
         queryset = (
             DailyScrapMoveAggregate.objects
             .filter(is_deleted=False)
-            .annotate(casted_weight_date=ToFormalDate(F("weight_date")))
+            .annotate(casted_weight_date=ToFormalDateTime(F("weight_date")))
             .order_by("-record_time")
         )
 
@@ -499,7 +499,7 @@ def internal_general_metrics_service(start_date=None, end_date=None):
     """
     try:
         queryset = DailyScrapMoveAggregate.objects.annotate(
-            casted_weight_date=ToFormalDate("weight_date")
+            casted_weight_date=ToFormalDateTime("weight_date")
         )
 
         # Apply date filters
@@ -560,7 +560,7 @@ def yearly_internal_scrap_move_service():
 
         queryset = (
             DailyScrapMoveAggregate.objects
-            .annotate(casted_weight_date=ToFormalDate("weight_date"))
+            .annotate(casted_weight_date=ToFormalDateTime("weight_date"))
             .filter(
                 casted_weight_date__range=(start_date, end_date),
                 material_type__iexact=MaterialType.SCRAP.value

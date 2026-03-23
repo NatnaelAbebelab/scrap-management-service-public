@@ -5,7 +5,6 @@ from django.db.models import Q
 from rest_framework import serializers
 
 from customer.models import PurchaseCustomer
-from helperFunctions.roles import get_user_role
 from helperFunctions.validations import is_digit
 from rate.models import Rate
 from .models import GRN, GRNSerialNumber
@@ -155,17 +154,6 @@ class ChangeGRNStatusSerializer(serializers.Serializer):
         if missing:
             raise serializers.ValidationError(f"Records not found: {missing}")
         return value
-
-    def validate(self, data):
-        request = self.context.get("request")
-        role = get_user_role(request.user)
-
-        # Role-based required fields
-        if role == "purchaser" and not data.get("grn_no"):
-            raise serializers.ValidationError("grn_no is required for purchaser")
-        if role == "purchase_head" and not data.get("approve_img"):
-            raise serializers.ValidationError("approve_img is required for purchase_head")
-        return data
     
 class GRNSerialNumberSerializer(serializers.ModelSerializer):
     class Meta:
