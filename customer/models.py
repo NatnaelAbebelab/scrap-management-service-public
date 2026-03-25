@@ -12,7 +12,7 @@ class PurchaseCustomer(models.Model):
     last_name = models.CharField(blank=True)
     phone = models.CharField(blank=True)
     email = models.CharField(blank=True)
-    TIN = models.CharField(blank=True)
+    TIN = models.CharField(max_length=50, unique=True)
     business_name = models.CharField(blank=True)
     paid_amount = models.FloatField(default=0.00)
     remaining_amount = models.FloatField(default=0.00)
