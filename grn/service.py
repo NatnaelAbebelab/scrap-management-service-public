@@ -201,13 +201,13 @@ def pay_customer_service(record_numbers, user):
         # update customer
         customer.paid_amount = Decimal(customer.paid_amount) + total_amount
         customer.remaining_amount = Decimal(customer.remaining_amount) - total_amount
-        customer.updated_by = user.username
+        customer.updated_by = user
         customer.save()
 
         # update GRN status
         grns.update(
             status=Status.PAID.status_value,
-            updated_by=user.username,
+            updated_by=user,
         )
 
         return {
