@@ -147,7 +147,7 @@ def rollback_grn_status_service(record_nos, role, user):
             previous_status = Status.get_previous_status(current_status)
             if previous_status:
                 record.status = previous_status
-                record.updated_by = user.username
+                record.updated_by = user
                 record.save()
                 rollback_records.append(record.record_no)
             else:

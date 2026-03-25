@@ -178,6 +178,8 @@ def upload_csv_file(request):
 
         grn_bulk = []
         stock_records = []
+        to_create_customer = []
+        to_update_customer = []
 
         for record in records:
             try:
@@ -305,6 +307,7 @@ def upload_csv_file(request):
                 customer = customer_cache.get(customer_tin)
                 if customer:
                     customer.remaining_amount += round(net_price, 2)
+                    to_update_customer.append(customer)
                 else:
                     new_cust = PurchaseCustomer(
                         TIN=customer_tin,
@@ -313,6 +316,7 @@ def upload_csv_file(request):
                         updated_by=request.user
                     )
                     customer_cache[customer_tin] = new_cust
+                    to_create_customer.append(new_cust)
 
             except Exception as e:
                 logger.error("Error processing record %s: %s", record.get("RECORD NO"), e)
@@ -327,7 +331,15 @@ def upload_csv_file(request):
         if stock_records:
             StockBalance.objects.bulk_create(stock_records, batch_size=500)
         if customer_cache:
-            PurchaseCustomer.objects.bulk_update(customer_cache.values(), ["remaining_amount"])
+            if to_create_customer:
+                PurchaseCustomer.objects.bulk_create(to_create_customer, batch_size=500)
+
+            if to_update_customer:
+                PurchaseCustomer.objects.bulk_update(
+                    to_update_customer,
+                    ["remaining_amount"],
+                    batch_size=500
+                )
 
         return JsonResponse({
             "result": "success",
