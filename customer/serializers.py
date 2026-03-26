@@ -1,4 +1,3 @@
-from django.utils import timezone
 from rest_framework import serializers
 
 from grn.models import GRN
@@ -51,10 +50,8 @@ class PurchaseCustomerCreateSerializer(serializers.ModelSerializer):
 
         customer = PurchaseCustomer.objects.create(
             **validated_data,
-            created_by=request.user.username,
-            updated_by=request.user.username,
-            created_at=timezone.now(),
-            updated_at=timezone.now(),
+            created_by=request.user,
+            updated_by=request.user,
         )
         grns = GRN.objects.filter(customer=customer.TIN)
         total_net_price = sum(float(grn.net_price or 0) for grn in grns)
@@ -117,8 +114,7 @@ class PurchaseCustomerUpdateSerializer(serializers.ModelSerializer):
             if value != "":
                 setattr(instance, attr, value)
 
-        instance.updated_at = timezone.now()
-        instance.updated_by = request.user.username
+        instance.updated_by = request.user
         instance.save()
 
         return instance
@@ -137,3 +133,4 @@ class CustomerPaymentSerializer(serializers.Serializer):
 
 class PurchaseCustomerReportFilterSerializer(serializers.Serializer):
     tin = serializers.CharField(required=False, allow_blank=True)
+    export = serializers.BooleanField(required=False, default=False)

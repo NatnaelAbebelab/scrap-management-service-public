@@ -13,7 +13,7 @@ from helperFunctions.validations import is_valid_uuid
 from utils.permissions import role_required
 from .models import PurchaseCustomer
 from .serializers import PurchaseCustomerCreateSerializer, PurchaseCustomerUpdateSerializer, CustomerPaymentSerializer, \
-    GRNSerializer, PurchaseCustomerReportFilterSerializer
+    GRNSerializer, PurchaseCustomerReportFilterSerializer, CustomerSerializer
 from .services import generate_purchase_customer_plain_report, generate_purchase_customer_aggregated_report
 
 logger = logging.getLogger(__name__)
@@ -232,7 +232,12 @@ def purchase_customer_report(request):
         filters = serializer.validated_data
 
         report = generate_purchase_customer_plain_report(filters)
-        paginated_result = customer_pagination(request, report["records"])
+
+        export = serializer.validated_data.get("export")
+        if export:
+            paginated_result = CustomerSerializer(report["records"], many=True)
+        else:
+            paginated_result = customer_pagination(request, report["records"])
 
         return JsonResponse({
             "result": "success",
