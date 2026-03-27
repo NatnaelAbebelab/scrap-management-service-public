@@ -3,7 +3,6 @@ from datetime import datetime
 from rest_framework import serializers
 
 from grn.models import GRN
-from grn.serializers import GRNCustomerSerializer
 from helperFunctions.material_type import is_valid_material
 from helperFunctions.validations import clean_tin
 
@@ -15,6 +14,7 @@ class GRNPlainReportFilterSerializer(serializers.Serializer):
     plate_no = serializers.CharField(required=False, allow_blank=True)
     start_date = serializers.CharField(required=False, allow_blank=True)
     end_date = serializers.CharField(required=False, allow_blank=True)
+    export = serializers.BooleanField(required=False, default=False)
 
     def validate(self, attrs):
         start_date = attrs.get("start_date")
@@ -27,10 +27,6 @@ class GRNPlainReportFilterSerializer(serializers.Serializer):
                 })
 
         return attrs
-
-class GRNPlainReportResponseSerializer(serializers.Serializer):
-    data = GRNCustomerSerializer(many=True)
-    totals = serializers.DictField()
 
 class GRNAggregateReportFilterSerializer(serializers.Serializer):
     tin = serializers.CharField(required=False, allow_blank=True)

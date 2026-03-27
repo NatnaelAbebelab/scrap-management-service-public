@@ -628,7 +628,7 @@ def delete_raw_material_issue(request, issue_id):
 
         requisition = issue.material_requisition
         # Add issued weight to the total requisition weight
-        requisition.total_requisition_quantity += issue.issue_weight
+        # requisition.total_requisition_quantity += issue.issue_weight ==> because actual substraction implemented on logic level
         requisition.save()
         issue.delete()
 
@@ -654,7 +654,7 @@ def delete_raw_material_issue(request, issue_id):
 """
 =================== Report Methods =======================
 """
-@api_view(['POST'])
+@api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def material_requisition_report(request):
     """
@@ -706,7 +706,7 @@ def material_requisition_report(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
-@api_view(['POST'])
+@api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def material_issue_report(request):
     """

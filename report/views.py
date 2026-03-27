@@ -9,7 +9,7 @@ from helperFunctions.date_manipulation import *
 from helperFunctions.formatter import *
 from helperFunctions.pagination import *
 from helperFunctions.validations import *
-from report.serializers import GRNPlainReportFilterSerializer, GRNPlainReportResponseSerializer, \
+from report.serializers import GRNPlainReportFilterSerializer, \
     GRNAggregateReportFilterSerializer, GRNAggregateResponseSerializer, GeneralMetricsResponseSerializer, \
     ScrapGradePercentageResponseSerializer, YearlyPurchaseReportResponseSerializer, InternalProcessReportSerializer
 from report.services import generate_grn_plain_report, generate_grn_aggregate_report_service, generate_general_metrics, \
@@ -21,7 +21,7 @@ from utils.exceptions import *
 logger = logging.getLogger(__name__)
 today = datetime.today().strftime('%Y-%m-%d')
 
-@api_view(['POST'])
+@api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def plain_grn_report(request):
     try:
@@ -32,15 +32,19 @@ def plain_grn_report(request):
             filter_serializer.validated_data
         )
 
-        response_serializer = GRNPlainReportResponseSerializer({
-            "data": queryset,
-            "totals": totals
-        })
+        export = filter_serializer.validated_data.get("export")
+        if export:
+            response_serializer = GRNCustomerSerializer(queryset, many=True)
+        else:
+            response_serializer = grn_pagination(request, queryset)
 
         return JsonResponse({
             "result": "success",
             "message": "Plain GRN report generated successfully",
-            "content": response_serializer.data
+            "content": {
+                "totals": totals,
+                "records": response_serializer.data
+            }
         }, status=status.HTTP_200_OK)
 
     except ValidationError as e:

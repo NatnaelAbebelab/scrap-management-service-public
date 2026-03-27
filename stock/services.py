@@ -248,7 +248,6 @@ def add_issue_balance(issue_date, issue_no, issue_weight, melting_plant, user):
             last_balance = (
                 StockBalance.objects
                 .filter(
-                    melting_plant=melting_plant,
                     is_deleted=False
                 )
                 .order_by("-record_time")

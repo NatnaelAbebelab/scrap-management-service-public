@@ -177,7 +177,7 @@ class MaterialRequisitionEditSerializer(serializers.Serializer):
     def validate_requisition_date(self, value):
         today = timezone.now().date()
 
-        if value > today:
+        if value and value > today:
             raise serializers.ValidationError(
                 "Requisition date cannot be in the future"
             )

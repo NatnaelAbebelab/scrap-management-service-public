@@ -44,8 +44,7 @@ def update_melting_plant(melting_plant_id, validated_data, user):
     if "plant_name" in validated_data:
         plant.plant_name = validated_data["plant_name"]
 
-    plant.updated_by = user.username
-    plant.updated_by_id = user
+    plant.updated_by = user
 
     plant.save()
     return plant
@@ -178,8 +177,7 @@ def update_material_requisition(user, validated_data):
             melting_plant = get_object_or_404(MeltingPlants, _id=plant_uuid)
             requisition.melting_plant = melting_plant
 
-        requisition.updated_by = user.username
-        requisition.updated_by_id = user
+        requisition.updated_by = user
         requisition.save()
 
         # --- Handle items ---
@@ -476,9 +474,9 @@ def filter_raw_material_issue_service(filters):
         )
 
     if min_weight:
-        queryset = queryset.filter(total_weight__gte=min_weight)
+        queryset = queryset.filter(issue_weight__gte=min_weight)
 
     if max_weight:
-        queryset = queryset.filter(total_weight__lte=max_weight)
+        queryset = queryset.filter(issue_weight__lte=max_weight)
 
     return queryset
