@@ -357,7 +357,7 @@ def upload_csv_file(request):
 @permission_classes([IsAuthenticated, role_required(["super_admin", "weight_man", "purchaser", "inspector", "purchase_head", "supervisor", "finance", "manager"])])
 def get_grn(request):
     try:
-        serializer = GRNFilterSerializer(data=request.data)
+        serializer = GRNFilterSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
         filters = serializer.validated_data
 
