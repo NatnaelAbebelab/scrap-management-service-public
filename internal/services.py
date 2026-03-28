@@ -1,5 +1,5 @@
 import pandas as pd
-import logging
+import logging, sys
 
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError, transaction
@@ -13,6 +13,7 @@ from .serializers import FactoryScrapUploadSerializer
 from .models import Agency, Agreement, AgreementRange, FactoryScrapMove, DailyScrapMoveAggregate
 
 logger = logging.getLogger(__name__)
+MAX_FLOAT = sys.float_info.max
 
 def process_scrap_excel(file, user):
 

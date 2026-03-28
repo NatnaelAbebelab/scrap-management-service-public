@@ -1,7 +1,9 @@
 from rest_framework import serializers
+from django.db.models import Q
 from .models import Agency, Agreement, AgreementRange, FactoryScrapMove, DailyScrapMoveAggregate
 from decimal import Decimal, ROUND_HALF_UP
 from helperFunctions.validations import clean_tin, is_valid_number, is_digit, is_valid_uuid
+from helperFunctions.status import is_valid_status
 from helperFunctions.material_type import MaterialType, is_valid_material
 
 class FactoryScrapUploadSerializer(serializers.Serializer):
@@ -109,10 +111,10 @@ class AgencyCreateSerializer(serializers.Serializer):
 
 class AgencyUpdateSerializer(serializers.Serializer):
     agency = serializers.UUIDField()
-    first_name = serializers.CharField(required=False, allow_blank=True)
-    last_name = serializers.CharField(required=False, allow_blank=True)
-    tin = serializers.CharField(required=False, allow_blank=True)
-    business_name = serializers.CharField(required=False, allow_blank=True)
+    first_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    last_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    tin = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    business_name = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     agreement = serializers.UUIDField(required=False, allow_null=True)
 
     def validate(self, data):
@@ -151,8 +153,8 @@ class AgencySerializer(serializers.ModelSerializer):
         fields = '__all__'  # Include all fields
 
 class AgreementTierSerializer(serializers.Serializer):
-    min_weight = serializers.FloatField(required=False, default=0)
-    max_weight = serializers.CharField()
+    min_weight = serializers.FloatField(default=0)
+    max_weight = serializers.CharField(required=False, allow_blank=True, default=None)
     rate = serializers.FloatField()
 
 class AgreementCreateSerializer(serializers.Serializer):

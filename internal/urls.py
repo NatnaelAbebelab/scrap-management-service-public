@@ -14,6 +14,7 @@ urlpatterns = [
     
     path('add-agreement/', views.add_agreement, name='add-agreement'),
     path('get-agreements/', views.get_agreements, name='get-agreements'),
+    path('get-agreement/<str:agency>/', views.get_agency_agreement, name='get-agency-agreement'),
     path('update-agreement/', views.update_agreement, name='update-agreement'),
     path('update-agreement-range/', views.update_agreement_range, name='update-agreement-range'),
     path('delete-agreement/<str:agreement_id>/', views.delete_agreement, name='delete-agreement'),

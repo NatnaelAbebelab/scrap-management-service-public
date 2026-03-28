@@ -377,6 +377,33 @@ def get_agreements(request):
             "message": "Internal server error"
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "finance", "manager"])])
+def get_agency_agreement(request, agency):
+    try:
+        agreements = Agreement.objects.filter(agency=agency).order_by("-record_time")
+        serializer = AgreementSerializer(agreements, many=True)
+
+        return JsonResponse({
+            "result": "success",
+            "message": "Agreements fetched successfully",
+            "content": serializer.data
+        }, status=status.HTTP_200_OK)
+
+    except Http404:
+        return JsonResponse({
+            "result": "error",
+            "message": "Agreements not found"
+        }, status=status.HTTP_404_NOT_FOUND)
+
+    except Exception as e:
+        logger.error("Error occurred while fetching agreements: %s", e)
+
+        return JsonResponse({
+            "result": "error",
+            "message": "Internal server error"
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
 @api_view(['PUT'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
 def update_agreement(request):
