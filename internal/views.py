@@ -1,5 +1,3 @@
-import sys
-
 from django.http import JsonResponse, Http404
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -13,7 +11,6 @@ from .services import *
 # Create your views here.
 logger = logging.getLogger(__name__)
 today = datetime.today().strftime('%Y-%m-%d')
-MAX_FLOAT = sys.float_info.max  # Largest finite float in Python
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, role_required(["super_admin", "weight_man"])])
