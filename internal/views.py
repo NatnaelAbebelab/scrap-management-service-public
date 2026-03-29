@@ -527,7 +527,7 @@ def get_daily_scrap_move_aggregate(request):
     Fetch daily aggregated scrap move
     """
     try:
-        serializer = DailyScrapMoveFilterSerializer(data=request.data)
+        serializer = DailyScrapMoveFilterSerializer(data=request.GET)
         serializer.is_valid(raise_exception=True)
 
         queryset = filter_daily_scrap_move_aggregate(

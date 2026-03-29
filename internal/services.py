@@ -466,9 +466,8 @@ def filter_daily_scrap_move_aggregate(filters):
 
         # TIN filter
         if tin:
-            agency = Agency.objects.filter(TIN=tin).first()
-            if agency:
-                queryset = queryset.filter(TIN=tin)
+            print("tin", tin)
+            queryset = queryset.filter(TIN=tin)
 
         # Material type filter
         if material_type:
@@ -588,7 +587,7 @@ def approve_daily_scrap_move_records(valid_ids):
         updated_count = (
             DailyScrapMoveAggregate.objects
             .filter(_id__in=valid_ids)
-            .exclude(status="approved_manager")
+            .exclude(status__in=["approved","approved_manager", "paid"])
             .update(
                 status="approved"
             )
@@ -608,6 +607,7 @@ def approve_factory_manager_records(valid_ids):
         updated_count = (
             DailyScrapMoveAggregate.objects
             .filter(_id__in=valid_ids)
+            .exclude(status__in=["paid"])
             .update(
                 status="approved_manager"
             )
@@ -634,6 +634,7 @@ def pay_agency_finance_service(valid_ids):
             affected_agencies = (
                 DailyScrapMoveAggregate.objects
                 .filter(_id__in=valid_ids)
+                .exclude(status__in=["new", "paid"])
                 .values("TIN")
                 .annotate(
                     total_paid=Sum(Cast("net_price", FloatField()))
