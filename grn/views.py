@@ -823,7 +823,7 @@ def delete_grn_serial_number(request, num_id):
         logger.error("Error occurred while deleting GRN Serial Number: %s", e)
         return JsonResponse({"result": "error", "message": "Error occurred while deleting GRN Serial Number", "content": e}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-@api_view(['POST'])
+@api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_scrap_receipt(request, record_no):
     try:
