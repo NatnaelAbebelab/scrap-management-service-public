@@ -222,6 +222,18 @@ def generate_stock_card_service(filters: dict):
     # Ensure 0 instead of None for empty results
     totals = {k: v or 0 for k, v in totals.items()}
 
+    # Fetch Beginning Balance
+    beginning = BeginningBalance.objects.filter(
+        is_active=True,
+        is_deleted=False
+    ).order_by("-created_at").first()
+
+    beginning_qty = beginning.beginning_qty if beginning else 0
+    beginning_value = beginning.beginning_value if beginning else 0
+
+    totals["beginning_qty"] = beginning_qty
+    totals["beginning_value"] = beginning_value
+
     # Include start and end date in response
     totals["start_date"] = start_date
     totals["end_date"] = end_date
