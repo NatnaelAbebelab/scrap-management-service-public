@@ -19,7 +19,7 @@ from .services import generate_purchase_customer_plain_report, generate_purchase
 logger = logging.getLogger(__name__)
 # Create your views here.
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "finance"])])
 def get_customers(request):
     try:
         customers = PurchaseCustomer.objects.all().order_by("-record_time")
@@ -37,7 +37,7 @@ def get_customers(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "purchase_head", "supervisor", "manager"])])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "finance"])])
 def add_customer(request):
     try:
         serializer = PurchaseCustomerCreateSerializer(
@@ -65,7 +65,7 @@ def add_customer(request):
         )
 
 @api_view(['PUT'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "purchase_head", "supervisor", "manager"])])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "finance"])])
 def edit_customer(request, customer_id):
     try:
         customer = get_object_or_404(PurchaseCustomer, _id=customer_id)
@@ -101,7 +101,7 @@ def edit_customer(request, customer_id):
         )
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "finance"])])
 def filter_customer_tin(request):
     tin = request.query_params.get("tin")
 
@@ -184,7 +184,7 @@ def pay_customer(request):
         return JsonResponse({"result": "error", "message": "Operation failed"}, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "manager"])])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
 @transaction.atomic
 def delete_customer(request, customer_id):
     if not is_valid_uuid(customer_id):

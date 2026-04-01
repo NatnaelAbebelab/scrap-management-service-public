@@ -1,18 +1,20 @@
-from django.http import JsonResponse, Http404
+import logging
+
 from django.contrib.auth import login
+from django.core.mail import EmailMessage
+from django.http import JsonResponse, Http404
 from django.shortcuts import get_object_or_404
 from django.template.loader import get_template
 from django.views.decorators.csrf import ensure_csrf_cookie
+from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
-from rest_framework import status
-from django.core.mail import EmailMessage
-from helperFunctions.validations import *
+
 from helperFunctions.pagination import *
 from helperFunctions.roles import *
-from .utility import get_tokens_for_user
 from utils.permissions import role_required
-import logging
+from .utility import get_tokens_for_user
+
 # Create your views here.
 
 logger = logging.getLogger(__name__)
