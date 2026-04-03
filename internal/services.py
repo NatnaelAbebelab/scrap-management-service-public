@@ -9,6 +9,7 @@ from django.contrib.postgres.aggregates import ArrayAgg
 from helperFunctions.validations import is_valid_uuid, clean_tin, ToFormalDateTime, ToDateTime
 from helperFunctions.roles import get_user_role
 from helperFunctions.status import Status
+from helperFunctions.validations import standardize_tin
 from .serializers import FactoryScrapUploadSerializer
 from .models import Agency, Agreement, AgreementRange, FactoryScrapMove, DailyScrapMoveAggregate
 
@@ -86,7 +87,7 @@ def process_scrap_excel(file, user):
                 second_date=validated.get("second_date"),
                 second_time=validated.get("second_time"),
                 net_weight=validated["net_weight"],
-                agency=validated["firm"],
+                agency=standardize_tin(validated["firm"]),
                 material_type=validated["material"],
                 driver_name=validated.get("driver_name"),
                 created_by=user,

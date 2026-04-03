@@ -255,7 +255,7 @@ def upload_csv_file(request):
                 # -------------------------
                 # GRN Object
                 # -------------------------
-                customer_tin = clean_tin(firm)
+                customer_tin = standardize_tin(clean_tin(firm))
                 serial_number = increment_grn_serial_number()
 
                 grn = GRN(

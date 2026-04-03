@@ -51,6 +51,21 @@ def clean_tin(tin):
         raise ValueError("TIN is empty or invalid after cleaning.")
     return tin
 
+def standardize_tin(tin: str) -> str:
+    if tin is None:
+        return None
+
+    # Remove spaces
+    tin = str(tin).strip()
+
+    # Step 1: Append standard prefix
+    tin = "00" + tin
+
+    # Step 2: Ensure length is 10 by padding with zeros on the left
+    tin = tin.zfill(10)
+
+    return tin
+
 def is_valid_number(value):
     """Check if the value is a valid positive number string."""
     try:
