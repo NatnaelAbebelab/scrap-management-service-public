@@ -19,7 +19,7 @@ from .services import generate_purchase_customer_plain_report, generate_purchase
 logger = logging.getLogger(__name__)
 # Create your views here.
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "finance"])])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "purchase_head", "supervisor", "finance"])])
 def get_customers(request):
     try:
         customers = PurchaseCustomer.objects.all().order_by("-record_time")
