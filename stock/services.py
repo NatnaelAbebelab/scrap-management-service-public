@@ -271,16 +271,20 @@ def add_issue_balance(issue_date, issue_no, issue_weight, melting_plant, user):
 
             # Calculate new remaining quantity and value
             new_remaining_qty = previous_remaining_qty - issue_weight
-            new_remaining_value = round(
+            rate = round(
                 previous_remaining_value / previous_remaining_qty,
                 2
-            ) * issue_weight
+            )
+            issue_value = rate * issue_weight
+            new_remaining_value = previous_remaining_value - issue_value
 
             # Create a new stock balance entry
             stock_balance = StockBalance.objects.create(
                 transaction_type=StockBalanceOn.ISSUE.value,
                 issue_no=issue_no,
                 issued_qty=issue_weight,
+                issue_value=issue_value,
+                average_rate=rate,
                 remaining_qty=new_remaining_qty,
                 remaining_value=new_remaining_value,
                 melting_plant=melting_plant,
