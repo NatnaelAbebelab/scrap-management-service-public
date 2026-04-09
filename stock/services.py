@@ -293,6 +293,14 @@ def add_issue_balance(issue_date, issue_no, issue_weight, melting_plant, user):
                 updated_by=user
             )
 
+            # Update the current active beginning balance
+            active_balance = BeginningBalance.objects.filter(
+                is_active=True
+            ).first()
+            active_balance.current_qty -= issue_weight
+            active_balance.current_value -= issue_value
+            active_balance.save()
+
             serializer = StockBalanceSerializer(stock_balance)
 
             return {

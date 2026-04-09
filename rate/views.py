@@ -39,7 +39,7 @@ def get_active_rate(request):
         }, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor", "finance", "manager"])])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "purchaser", "inspector", "purchase_head", "supervisor", "finance", "manager"])])
 def get_rate_archive(request):
     try:
         # Validate query params with serializer

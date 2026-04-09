@@ -173,7 +173,7 @@ def upload_csv_file(request):
         # -------------------------
         # Preload Customers
         # -------------------------
-        all_tins = {clean_tin(str(r.get("FIRM", "")).strip()) for r in records}
+        all_tins = {standardize_tin(clean_tin(str(r.get("FIRM", "")).strip())) for r in records}
         customer_cache = {c.TIN: c for c in PurchaseCustomer.objects.filter(TIN__in=all_tins)}
 
         grn_bulk = []

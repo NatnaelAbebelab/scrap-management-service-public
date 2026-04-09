@@ -63,7 +63,7 @@ def filter_grn_service(role, tin=None, material_type=None, plate_no=None, start_
         grn_qs = grn_qs.filter(plate_no__icontains=plate_no)
 
     if status and status in allowed_statuses:
-        grn_qs = grn_qs.filter(status__in=status)
+        grn_qs = grn_qs.filter(status=status)
 
     if start_date:
         grn_qs = grn_qs.filter(first_date__gte=start_date)
