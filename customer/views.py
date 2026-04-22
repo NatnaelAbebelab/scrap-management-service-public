@@ -13,8 +13,10 @@ from helperFunctions.validations import is_valid_uuid
 from utils.permissions import role_required
 from .models import PurchaseCustomer
 from .serializers import PurchaseCustomerCreateSerializer, PurchaseCustomerUpdateSerializer, CustomerPaymentSerializer, \
-    GRNSerializer, PurchaseCustomerReportFilterSerializer, CustomerSerializer
-from .services import generate_purchase_customer_plain_report, generate_purchase_customer_aggregated_report
+    GRNSerializer, PurchaseCustomerReportFilterSerializer, CustomerSerializer, CustomerNetPaySummaryRequestSerializer, \
+    CustomerNetPaySummarySerializer
+from .services import generate_purchase_customer_plain_report, generate_purchase_customer_aggregated_report, \
+    get_grn_by_tin_and_status, get_customer_net_pay_summary
 
 logger = logging.getLogger(__name__)
 # Create your views here.
@@ -303,4 +305,62 @@ def purchase_customer_aggregated_report(request):
             "result": "error",
             "message": "Failed to generate report",
             "content": str(e)
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def filter_customer_grn(request):
+    tin = request.GET.get("tin")
+    grn_status = request.GET.get("status")
+
+    if not tin or not grn_status:
+        return JsonResponse({
+            "result": "error",
+            "message": "TIN and status are required"
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        get_object_or_404(PurchaseCustomer, TIN=tin)
+        grn = get_grn_by_tin_and_status(tin, grn_status)
+
+        return JsonResponse({
+            "result": "success",
+            "message": "GRNs fetched successfully",
+            "data": list(grn)
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error("Error occurred while fetching GRNs: %s", e)
+
+        return JsonResponse({
+            "result": "error",
+            "message": "Something went wrong"
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def customer_net_pay_summary(request):
+    try:
+        serializer = CustomerNetPaySummaryRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        tin = serializer.validated_data["tin"]
+        record_numbers = serializer.validated_data["record_no"]
+
+        result = get_customer_net_pay_summary(tin, record_numbers)
+
+        response_serializer = CustomerNetPaySummarySerializer(result)
+
+        return JsonResponse({
+            "result": "success",
+            "message": "Customer net pay summary fetched successfully",
+            "data": response_serializer.data
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        logger.error("Error occurred while fetching customer net pay summary: %s", e)
+
+        return JsonResponse({
+            "result": "error",
+            "message": "Failed to generate summary"
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

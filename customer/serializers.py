@@ -134,3 +134,54 @@ class CustomerPaymentSerializer(serializers.Serializer):
 class PurchaseCustomerReportFilterSerializer(serializers.Serializer):
     tin = serializers.CharField(required=False, allow_blank=True)
     export = serializers.BooleanField(required=False, default=False)
+
+class CustomerNetPaySummaryRequestSerializer(serializers.Serializer):
+    tin = serializers.CharField(required=True)
+    record_no = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=False
+    )
+
+    def validate_record_no(self, value):
+        for r in value:
+            if not r.isdigit():
+                raise serializers.ValidationError(
+                    f"Record number {r} must be digits only"
+                )
+        return value
+
+class CustomerInfoSerializer(serializers.Serializer):
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
+    business_name = serializers.CharField()
+    tin = serializers.CharField()
+
+class GRNSummarySerializer(serializers.Serializer):
+    record_no = serializers.CharField()
+    grn_no = serializers.CharField()
+    serial_no = serializers.IntegerField()
+
+    first_date = serializers.CharField()
+    first_weight = serializers.CharField()
+
+    heavy_grade = serializers.CharField()
+    medium_grade = serializers.CharField()
+    light_grade = serializers.CharField()
+
+    heavy_rate = serializers.CharField()
+    medium_rate = serializers.CharField()
+    light_rate = serializers.CharField()
+
+    net_price = serializers.CharField()
+
+class CalculatedPriceSerializer(serializers.Serializer):
+    sub_total = serializers.DecimalField(max_digits=20, decimal_places=2)
+    vat_price = serializers.DecimalField(max_digits=20, decimal_places=2)
+    grand_total = serializers.DecimalField(max_digits=20, decimal_places=2)
+    with_holding_price = serializers.DecimalField(max_digits=20, decimal_places=2)
+    net_pay = serializers.DecimalField(max_digits=20, decimal_places=2)
+
+class CustomerNetPaySummarySerializer(serializers.Serializer):
+    customer_info = CustomerInfoSerializer()
+    grn = GRNSummarySerializer(many=True)
+    calculated_price = CalculatedPriceSerializer()
