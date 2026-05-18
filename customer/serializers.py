@@ -3,7 +3,6 @@ from rest_framework import serializers
 from grn.models import GRN
 from .models import PurchaseCustomer
 
-
 class CustomerSerializer(serializers.ModelSerializer):
     class Meta:
         model = PurchaseCustomer

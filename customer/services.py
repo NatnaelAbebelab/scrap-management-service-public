@@ -6,7 +6,6 @@ from django.shortcuts import get_object_or_404
 from customer.models import PurchaseCustomer
 from grn.models import GRN
 
-
 def generate_purchase_customer_plain_report(filters: dict):
     """
     Generate Purchase Customer Plain Report filtered by TIN

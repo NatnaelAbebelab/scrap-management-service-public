@@ -46,11 +46,14 @@ class CustomUser(AbstractUser):
         ("super_admin", "Super Admin"),
         ("weight_man", "Weight Man"),
         ("purchaser", "Purchaser"),
+        ("store_keeper", "Storekeeper"),
         ("inspector", "Inspector"),
         ("purchase_head", "Purchase Head"),
         ("supervisor", "Supervisor"),
         ("finance", "Finance"),
         ("manager", "General Manager"),
+        ("forman", "Forman"),
+        ("department_head", "Department Head")
     ]
     
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="purchaser")

@@ -230,9 +230,11 @@ def generate_stock_card_service(filters: dict):
 
     beginning_qty = beginning.beginning_qty if beginning else 0
     beginning_value = beginning.beginning_value if beginning else 0
+    beginning_set_date = beginning.created_at if beginning else None
 
     totals["beginning_qty"] = beginning_qty
     totals["beginning_value"] = beginning_value
+    totals["beginning_set_date"] = beginning_set_date
 
     # Include start and end date in response
     totals["start_date"] = start_date

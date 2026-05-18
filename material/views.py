@@ -234,7 +234,7 @@ def get_material_requisition(request, requisition_id):
 @permission_classes([IsAuthenticated])
 def get_approved_material_requisitions(request):
     approved_requisitions = MaterialRequisition.objects.filter(
-        requisition_status=RequisitionStatus.APPROVED.value
+        requisition_status__in=[RequisitionStatus.APPROVED.value, RequisitionStatus.PARTIALLY_RECEIVED.value]
     ).order_by('-record_time')
 
     serializer = ApprovedMaterialRequisitionSerializer(approved_requisitions, many=True)
@@ -246,7 +246,7 @@ def get_approved_material_requisitions(request):
     }, status=status.HTTP_200_OK)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, role_required(["super_admin", "supervisor"])])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "forman"])])
 def add_material_requisition(request):
     """
     Add a new material requisition
@@ -290,7 +290,7 @@ def add_material_requisition(request):
         )
 
 @api_view(['PUT'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "forman"])])
 def edit_material_requisition(request):
     """
     Expected request.data format:
@@ -347,7 +347,7 @@ def edit_material_requisition(request):
         )
 
 @api_view(['PATCH'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "department_head"])])
 def approve_material_requisition(request, requisition_id):
     try:
         requisition = MaterialRequisition.objects.get(_id=requisition_id)
@@ -378,7 +378,7 @@ def approve_material_requisition(request, requisition_id):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "department_head"])])
 @transaction.atomic
 def delete_material_requisition(request, requisition_id):
     try:
@@ -477,7 +477,7 @@ def get_raw_material_issue(request, issue_id):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "store_keeper", 'purchaser'])])
 def add_raw_material_issue(request):
 
     serializer = RawMaterialIssueCreateSerializer(data=request.data)
@@ -519,7 +519,7 @@ def add_raw_material_issue(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['PUT'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, role_required(["super_admin", "store_keeper", 'purchaser', 'supervisor'])])
 def edit_raw_material_issue(request):
     serializer = RawMaterialIssueEditSerializer(data=request.data)
     if not serializer.is_valid():
@@ -555,7 +555,7 @@ def edit_raw_material_issue(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['PATCH'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, role_required(["super_admin", 'supervisor'])])
 def change_raw_material_issue_status(request, issue_id):
     """
     Endpoint to change RawMaterialIssue status:
@@ -608,7 +608,7 @@ def change_raw_material_issue_status(request, issue_id):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, role_required(["super_admin", 'supervisor'])])
 @transaction.atomic
 def delete_raw_material_issue(request, issue_id):
     if not issue_id:

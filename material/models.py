@@ -1,6 +1,7 @@
 import uuid
 
 from django.db import models
+from django.db.models import Sum
 
 from material.enums import RequisitionStatus, IssueStatus
 from user.models import CustomUser
@@ -41,6 +42,7 @@ class MaterialRequisition(models.Model):
     requisition_no = models.CharField(max_length=255, blank=True)
     total_requisition_quantity = models.FloatField(max_length=255, default=0.0)
     total_requisition_price = models.FloatField(max_length=255, default=0.0)
+    unreceived_quantity = models.FloatField(max_length=255, default=0.0)
     requisition_status = models.CharField(
         max_length=50,
         choices=[(s.value, s.name.title()) for s in RequisitionStatus],
@@ -58,6 +60,20 @@ class MaterialRequisition(models.Model):
 
     objects = ScrapItemManager()
     all_objects = models.Manager()
+
+    @property
+    def total_issued_weight(self):
+        return (
+            self.issues.filter(
+                issue_status__in=[
+                    IssueStatus.APPROVED.value,
+                    IssueStatus.PARTIALLY_APPROVED.value
+                ],
+                is_deleted=False
+            ).aggregate(
+                total=Sum('issue_weight')
+            )['total'] or 0
+        )
 
     def delete(self, *args, **kwargs):
         self.is_deleted = True
@@ -85,13 +101,13 @@ class MaterialRequisitionItem(models.Model):
 
 class RawMaterialIssue(models.Model):
     _id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    material_requisition = models.ForeignKey(MaterialRequisition, on_delete=models.CASCADE)
+    material_requisition = models.ForeignKey(MaterialRequisition, on_delete=models.CASCADE, related_name="issues")
     issue_date = models.CharField(max_length=255, blank=True)
     issue_no = models.CharField(max_length=255, blank=True)
     issue_status = models.CharField(
         max_length=50,
         choices=[(s.value, s.name.title()) for s in IssueStatus],
-        default=IssueStatus.NEW.value
+        default=IssueStatus.ISSUED.value
     )
     issue_weight = models.FloatField(default=0.0)
     is_deleted = models.BooleanField(default=False)

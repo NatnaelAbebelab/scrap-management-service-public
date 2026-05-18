@@ -121,6 +121,7 @@ class MaterialRequisitionSerializer(serializers.ModelSerializer):
             "requisition_no",
             "total_requisition_quantity",
             "total_requisition_price",
+            "unreceived_quantity",
             "requisition_status",
             "created_by",
             "created_at",
@@ -187,7 +188,7 @@ class MaterialRequisitionEditSerializer(serializers.Serializer):
 class ApprovedMaterialRequisitionSerializer(serializers.ModelSerializer):
     class Meta:
         model = MaterialRequisition
-        fields = ['_id', 'requisition_no', 'requisition_date', 'total_requisition_quantity']
+        fields = ['_id', 'requisition_no', 'requisition_date', 'total_requisition_quantity', 'unreceived_quantity']
 
 class RawMaterialIssueCreateSerializer(serializers.Serializer):
     material_requisition = serializers.UUIDField()

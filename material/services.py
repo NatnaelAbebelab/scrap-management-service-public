@@ -5,7 +5,7 @@ from django.http import Http404
 from django.shortcuts import get_object_or_404
 
 from helperFunctions.validations import CastToDate
-from material.enums import IssueStatus
+from material.enums import IssueStatus, RequisitionStatus
 from material.models import MeltingPlants, MaterialRequisition, MaterialRequisitionItem, RawMaterialIssue
 from stock.models import BeginningBalance
 from stock.services import add_issue_balance
@@ -98,6 +98,7 @@ def create_material_requisition(validated_data, user):
 
         # Update totals
         requisition.total_requisition_quantity = total_quantity
+        requisition.unreceived_quantity = total_quantity
         requisition.total_requisition_price = total_price
         requisition.save()
 
@@ -223,6 +224,7 @@ def update_material_requisition(user, validated_data):
 
         # Update totals
         requisition.total_requisition_quantity = total_quantity
+        requisition.unreceived_quantity = total_quantity
         requisition.total_requisition_price = total_price
         requisition.save()
 
@@ -358,6 +360,8 @@ def change_raw_material_issue_status_service(issue_id, user):
     with transaction.atomic():
         # Fetch issue excluding deleted
         issue = get_object_or_404(RawMaterialIssue, _id=issue_id, is_deleted=False)
+        requisition = issue.material_requisition
+        total_issued_requisition_weight = requisition.total_issued_weight
 
         stock_balance_result = None
 
@@ -366,8 +370,16 @@ def change_raw_material_issue_status_service(issue_id, user):
             new_status = IssueStatus.ISSUED.value
 
         elif issue.issue_status == IssueStatus.ISSUED.value:
-            new_status = IssueStatus.APPROVED.value
+            if (total_issued_requisition_weight + issue.issue_weight) < requisition.total_requisition_quantity:
+                new_status = IssueStatus.PARTIALLY_APPROVED.value
+                new_requisition_status = RequisitionStatus.PARTIALLY_RECEIVED.value
+            else:
+                new_status = IssueStatus.APPROVED.value
+                new_requisition_status = RequisitionStatus.RECEIVED.value
+
             total_issue_weight = issue.issue_weight
+            unissued_weight = requisition.total_requisition_quantity - (
+                        total_issued_requisition_weight + issue.issue_weight)
 
             # Call stock balance update logic
             stock_balance_result = add_issue_balance(
@@ -377,6 +389,12 @@ def change_raw_material_issue_status_service(issue_id, user):
                 melting_plant=issue.material_requisition.melting_plant,
                 user=user,
             )
+
+            # Update requisition status
+            requisition.requisition_status = new_requisition_status
+            requisition.unreceived_quantity = unissued_weight
+            requisition.updated_by = user
+            requisition.save()
 
         else:
             raise ValueError(f"Cannot change status from '{issue.issue_status}'")

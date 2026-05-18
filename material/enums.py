@@ -8,9 +8,12 @@ class Plants(Enum):
 class IssueStatus(Enum):
     NEW = "new"
     ISSUED = "issued"
+    PARTIALLY_APPROVED = "partially_approved"
     APPROVED = "approved"
 
 class RequisitionStatus(Enum):
     NEW = "new"
     REQUESTED = "request_issued"
     APPROVED = "approved"
+    PARTIALLY_RECEIVED = "partially_received"
+    RECEIVED = "received"
