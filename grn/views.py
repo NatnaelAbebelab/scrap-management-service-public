@@ -829,7 +829,7 @@ def get_scrap_receipt(request, record_no):
     try:
         # Get GRN record
         grn_record = get_object_or_404(GRN.objects, record_no=record_no)
-        serializer = GRNCustomerSerializer(grn_record)
+        serializer = GRNWithSignaturesSerializer(grn_record)
 
         return JsonResponse({
             "result": "success",

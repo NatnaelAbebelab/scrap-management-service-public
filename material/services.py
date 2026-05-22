@@ -1,3 +1,4 @@
+from django.utils import timezone
 from django.db import transaction
 from django.db.models import F, Sum, DateField
 from django.db.models.functions import Cast
@@ -68,6 +69,8 @@ def create_material_requisition(validated_data, user):
             melting_plant=melting_plant,
             requisition_date=validated_data["requisition_date"],
             requisition_no=validated_data["requisition_no"],
+            requested_by=user,
+            requested_at=timezone.now(),
             created_by=user
         )
 
@@ -263,6 +266,8 @@ def create_raw_material_issue_service(validated_data, user):
         issue_date=validated_data.get("issue_date"),
         issue_no=validated_data.get("issue_no"),
         issue_weight=issue_weight,
+        issued_by=user,
+        issued_at=timezone.now(),
         created_by=user,
         updated_by=user
     )
@@ -364,6 +369,7 @@ def change_raw_material_issue_status_service(issue_id, user):
         total_issued_requisition_weight = requisition.total_issued_weight
 
         stock_balance_result = None
+        approved_by = None
 
         # Determine new status
         if issue.issue_status == IssueStatus.NEW.value:
@@ -393,6 +399,8 @@ def change_raw_material_issue_status_service(issue_id, user):
             # Update requisition status
             requisition.requisition_status = new_requisition_status
             requisition.unreceived_quantity = unissued_weight
+            requisition.received_by = requisition.approved_by if new_requisition_status == RequisitionStatus.RECEIVED.value else None
+            requisition.received_at = timezone.now() if new_requisition_status == RequisitionStatus.RECEIVED.value else None
             requisition.updated_by = user
             requisition.save()
 
@@ -401,6 +409,8 @@ def change_raw_material_issue_status_service(issue_id, user):
 
         # Update audit and status
         issue.issue_status = new_status
+        issue.approved_by = user
+        issue.approved_at = timezone.now()
         issue.updated_by = user
         issue.save()
 

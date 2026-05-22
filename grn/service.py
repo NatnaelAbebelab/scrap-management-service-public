@@ -96,6 +96,8 @@ def change_grn_status_service(record_nos, role, user, data):
             continue
 
         # Role-specific updates (file names are already uploaded)
+        now = timezone.now()
+
         if role == "purchaser":
             if grn_no:
                 record.grn_no = grn_no
@@ -103,10 +105,22 @@ def change_grn_status_service(record_nos, role, user, data):
                 record.grn_img = grn_img
             if scale_img:
                 record.scale_img = scale_img
+            record.prepared_by = user
+            record.prepared_at = now
+
+        elif role == "inspector":
+            record.inspected_by = user
+            record.inspected_at = now
 
         elif role == "purchase_head":
             if approve_img:
                 record.approve_img = approve_img
+            record.verified_by = user
+            record.verified_at = now
+
+        elif role == "supervisor":
+            record.approved_by = user
+            record.approved_at = now
 
         # Update status
         record.status = next_status

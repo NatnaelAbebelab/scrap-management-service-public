@@ -2,6 +2,7 @@ import logging
 from datetime import datetime
 
 from django.db import transaction
+from django.utils import timezone
 from django.http import JsonResponse, Http404
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -352,6 +353,8 @@ def approve_material_requisition(request, requisition_id):
     try:
         requisition = MaterialRequisition.objects.get(_id=requisition_id)
         requisition.requisition_status = RequisitionStatus.APPROVED.value
+        requisition.approved_by = request.user
+        requisition.approved_at = timezone.now()
         requisition.updated_by = request.user
         requisition.save()
 

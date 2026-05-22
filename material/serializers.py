@@ -111,7 +111,10 @@ class MaterialRequisitionItemSerializer(serializers.ModelSerializer):
 class MaterialRequisitionSerializer(serializers.ModelSerializer):
     items = MaterialRequisitionItemSerializer(many=True, read_only=True)
     melting_plant = MeltingPlantsSerializer(read_only=True)
-    
+    requested_by_signature = serializers.SerializerMethodField()
+    approved_by_signature = serializers.SerializerMethodField()
+    received_by_signature = serializers.SerializerMethodField()
+
     class Meta:
         model = MaterialRequisition
         fields = [
@@ -123,12 +126,30 @@ class MaterialRequisitionSerializer(serializers.ModelSerializer):
             "total_requisition_price",
             "unreceived_quantity",
             "requisition_status",
+            "requested_by",
+            "requested_at",
+            "requested_by_signature",
+            "approved_by",
+            "approved_at",
+            "approved_by_signature",
+            "received_by",
+            "received_at",
+            "received_by_signature",
             "created_by",
             "created_at",
             "updated_by",
             "updated_at",
             "items",
         ]
+
+    def get_requested_by_signature(self, obj):
+        return obj.requested_by.signature if obj.requested_by else None
+
+    def get_approved_by_signature(self, obj):
+        return obj.approved_by.signature if obj.approved_by else None
+    
+    def get_received_by_signature(self, obj):
+        return obj.approved_by.signature if obj.approved_by else None
 
 class MaterialRequisitionFilterSerializer(serializers.Serializer):
     plant = serializers.UUIDField(required=False, allow_null=True)
@@ -263,6 +284,9 @@ class RawMaterialIssueSerializer(serializers.ModelSerializer):
         read_only=True
     )
 
+    issued_by_signature = serializers.SerializerMethodField()
+    approved_by_signature = serializers.SerializerMethodField()
+
     class Meta:
         model = RawMaterialIssue
         fields = [
@@ -280,12 +304,26 @@ class RawMaterialIssueSerializer(serializers.ModelSerializer):
             "issue_status",
             "issue_weight",
 
+            "issued_by_signature",
+            "issued_by",
+            "issued_at",
+
+            "approved_by_signature",
+            "approved_by",
+            "approved_at",
+
             "created_by",
             "created_at",
             "updated_by",
             "updated_at",
             "is_deleted",
         ]
+    
+    def get_issued_by_signature(self, obj):
+        return obj.issued_by.signature if obj.issued_by else None
+
+    def get_approved_by_signature(self, obj):
+        return obj.approved_by.signature if obj.approved_by else None
 
 class RawMaterialIssueFilterSerializer(serializers.Serializer):
     requisition_no = serializers.CharField(required=False, allow_blank=True)

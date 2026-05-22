@@ -50,6 +50,44 @@ class GRN(models.Model) :
     scale_img = models.CharField(max_length=255, blank=True)
     status = models.CharField(max_length=255, blank=True, default='new')
     is_deleted = models.BooleanField(default=False)
+
+    prepared_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="grn_prepared"
+    )
+    prepared_at = models.DateTimeField(null=True, blank=True, default=None)
+    inspected_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="grn_inspected"
+    )
+    inspected_at = models.DateTimeField(null=True, blank=True, default=None)
+    verified_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="grn_verified"
+    )
+    verified_at = models.DateTimeField(null=True, blank=True, default=None)
+    approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="grn_approved"
+    )
+    approved_at = models.DateTimeField(null=True, blank=True, default=None)
+
     created_by = models.ForeignKey(
         User,
         on_delete=models.SET_NULL,

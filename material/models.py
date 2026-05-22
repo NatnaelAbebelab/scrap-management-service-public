@@ -49,6 +49,35 @@ class MaterialRequisition(models.Model):
         default=RequisitionStatus.REQUESTED.value
     )
     is_deleted = models.BooleanField(default=False)
+
+    requested_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="material_request"
+    )
+    requested_at = models.DateTimeField(null=True, blank=True, default=None)
+    approved_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="material_approve"
+    )
+    approved_at = models.DateTimeField(null=True, blank=True, default=None)
+    received_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="material_received"
+    )
+    received_at = models.DateTimeField(null=True, blank=True, default=None)
+
     created_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="requisition_created_by")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="requisition_updated_by")
@@ -111,6 +140,26 @@ class RawMaterialIssue(models.Model):
     )
     issue_weight = models.FloatField(default=0.0)
     is_deleted = models.BooleanField(default=False)
+
+    issued_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="material_issue"
+    )
+    issued_at = models.DateTimeField(null=True, blank=True, default=None)
+    approved_by = models.ForeignKey(
+        CustomUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        default=None,
+        related_name="material_issue_approve"
+    )
+    approved_at = models.DateTimeField(null=True, blank=True, default=None)
+
     created_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="issue_created_by")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, related_name="issue_updated_by")

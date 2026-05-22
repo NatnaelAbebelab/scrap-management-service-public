@@ -131,6 +131,37 @@ class GRNCustomerSerializer(serializers.ModelSerializer):
             data['net_price'] = Decimal(str(data['net_price'])).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP) 
         return data
 
+class GRNWithSignaturesSerializer(GRNCustomerSerializer):
+    """
+    Extends GRNCustomerSerializer with signature fields for each role actor.
+    Each field resolves the FK user and returns their signature filename.
+    """
+    prepared_by_signature = serializers.SerializerMethodField()
+    inspected_by_signature = serializers.SerializerMethodField()
+    verified_by_signature = serializers.SerializerMethodField()
+    approved_by_signature = serializers.SerializerMethodField()
+
+    class Meta(GRNCustomerSerializer.Meta):
+        fields = GRNCustomerSerializer.Meta.fields + [
+            'prepared_by_signature',
+            'inspected_by_signature',
+            'verified_by_signature',
+            'approved_by_signature',
+        ]
+
+    def get_prepared_by_signature(self, obj):
+        return obj.prepared_by.signature if obj.prepared_by else None
+
+    def get_inspected_by_signature(self, obj):
+        return obj.inspected_by.signature if obj.inspected_by else None
+
+    def get_verified_by_signature(self, obj):
+        return obj.verified_by.signature if obj.verified_by else None
+
+    def get_approved_by_signature(self, obj):
+        return obj.approved_by.signature if obj.approved_by else None
+
+
 class ChangeGRNStatusSerializer(serializers.Serializer):
     record_no = serializers.ListField(
         child=serializers.CharField(),
